@@ -8,12 +8,12 @@
 
 这是 **SeeedMote v2** 仓库 —— Seeed 方案商团队的"参考架构家族"骨架。它衍生具体方案(冷链、急停、接触、资产追踪 …),最终通过 [SenseCraft Solution 平台](https://github.com/suharvest/app_collaboration) 投给集成商。
 
-当前状态:**端到端骨架打通**。
+当前状态:**第一版端到端打通(2026-05)**。
 
-- mote 走到 bring-up step 2:BLE adv 静态 SeeedMote 帧
-- gateway 实现 BLE observer + UART JSON 出口
+- mote:LSM6DS3TR-C IMU 实时采样,STILL/MOVING/PICK_UP 状态机,connectable BLE adv(BT_PERIPHERAL),USB CDC(product="seeedmote-motion")
+- gateway:NimBLE OBSERVER,JSON 出口字段:ts/gw_id/mote_mac/rssi/ev/boot/ctr
 - 跨设备契约:`contracts/airframe.yaml` v1(11 字节,uplink only,无 MIC)
-- 仍未做:MQTT 出口、IMU 触发、System OFF、消息认证
+- 仍未做:MQTT 出口、System OFF、消息认证
 
 ---
 
@@ -93,7 +93,7 @@ project 名格式:`<role>_<function>_<chip>`。**编译看 `_<chip>` 后缀,不�
 | 板特化 DTS overlay | `app.overlay`(覆盖 board DTS) |
 | 加 NCS 模块 | `west.yml` 加 project entry,然后 `west update` |
 
-构建:`cd projects/mote_motion_nrf52840 && west build -b xiao_ble`
+构建:`cd projects/mote_motion_nrf52840 && ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2`
 
 ### 任务 B — 给 gateway 加业务(出口适配 / 扫描 / 配置)
 
@@ -123,11 +123,10 @@ project 名格式:`<role>_<function>_<chip>`。**编译看 `_<chip>` 后缀,不�
 
 ```bash
 # ━━━ MOTE (west + NCS) ━━━
+# NCS 工作区在 ~/ncs/v2.9.2/,共享,无需每次 bootstrap
 cd projects/mote_motion_nrf52840
-west init -l .                     # 一次性,建 .west/
-west update                        # 一次性,下载 NCS 4GB
-west build -b xiao_ble             # 编译
-cp build/zephyr/zephyr.uf2 /Volumes/XIAOBOOT/   # 烧录 (UF2)
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2  # 编译 UF2
+cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/   # 烧录 (UF2,上电 5 秒内自动出现)
 # 或:
 west flash                         # 烧录 (SWD)
 
@@ -155,7 +154,7 @@ pio device monitor -d projects/gateway_basic_esp32s3       # 串口监视
 | 我能不能加 OTA / MCUBoot? | **不能**,v2.0 已显式放弃,v2.1 由人决策 |
 | ESP32-C6 能当 mote 吗? | 当前架构里 mote = nRF52840(因为 System OFF ~0.4µA),ESP32-C6 sleep 不够低 |
 | 我能不能在 src/ 里直接 #include <zephyr.h>?(老 API) | **不能**,我们用 Zephyr 3.7,头文件是 `<zephyr/kernel.h>` 这种带前缀的 |
-| 我能不能把 NCS 装到全局? | **不能**,每个 mote project 自己的 west workspace |
+| 我能不能把 NCS 装到全局? | NCS 工作区在 `~/ncs/v2.9.2/`,共享;编译时 `ZEPHYR_BASE` 指向它,无需在 project 目录下 bootstrap |
 
 ---
 

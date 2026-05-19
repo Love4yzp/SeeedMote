@@ -7,6 +7,7 @@
 
 # Build artifacts
 build/
+build_uf2/
 *.elf
 *.bin
 *.hex
@@ -24,6 +25,7 @@ dependencies.lock
 # Zephyr / west — only inside mote projects (workspace state, NCS sources)
 .west/
 **/build/
+**/build_uf2/
 nrf/
 nrfxlib/
 modules/

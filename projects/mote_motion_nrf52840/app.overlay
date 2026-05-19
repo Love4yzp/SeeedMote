@@ -1,0 +1,23 @@
+/*
+ * SeeedMote v2 — XIAO BLE Sense aliases.
+ *
+ * The Sense board DTS already declares the LSM6DS3TR-C IMU on i2c0
+ * (zephyr/boards/seeed/xiao_ble/xiao_ble_nrf52840_sense.dts) with the
+ * correct compatible (`st,lsm6dsl`), address (0x6a), INT GPIO (P0.11)
+ * and a regulator-fixed-sync that gates VDD_ENV (P1.08) automatically.
+ *
+ * We only need to attach an `imu` alias so src/main.c stays board-
+ * neutral.
+ *
+ * Settings storage uses the board's existing `storage_partition`
+ * (32 KB at 0x000ec000); no overlay needed for v2 to flip
+ * CONFIG_SETTINGS=y.
+ *
+ * Build with the Sense variant:  west build -b xiao_ble/nrf52840/sense
+ */
+
+/ {
+    aliases {
+        imu = &lsm6ds3tr_c;
+    };
+};

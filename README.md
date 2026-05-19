@@ -12,12 +12,12 @@
 
 ## Status
 
-端到端骨架打通(2026-05):
+端到端骨架打通并已验证(2026-05):
 
-- **Mote**:bring-up step 2 —— BLE non-connectable adv 广播 11 字节 SeeedMote 帧(`STILL/MOVING/PICK_UP` 循环、100 ms 周期)。无 IMU、无 USB CDC、无 System OFF。
-- **Gateway**:BLE observer 持续扫描,解码 manufacturer-specific 帧,UART 一行一个 JSON 事件。无 Wi-Fi、无 MQTT。
+- **Mote**:LSM6DS3TR-C IMU 实时采样,`STILL/MOVING/PICK_UP` 状态机驱动 11 字节 manufacturer-specific payload,connectable BLE adv,USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
+- **Gateway**:NimBLE OBSERVER 持续扫描,解码 `mfg_id=0xFFFF` 帧,UART 输出 JSON 事件(字段:`ts/gw_id/mote_mac/rssi/ev/boot/ctr`)。无 Wi-Fi、无 MQTT。
 - **Contract**:[`contracts/airframe.yaml`](contracts/airframe.yaml) v1 —— mote / gateway 双方对齐的唯一真源。
-- **未做**:MQTT 出口、IMU 触发、System OFF、消息认证 / allowlist。
+- **未做**:MQTT 出口、System OFF、消息认证 / allowlist。
 
 ## ⚠️ 双轨工具链(看 chip 后缀,不看 role 前缀)
 
@@ -45,11 +45,10 @@ Project 命名:`<role>_<function>_<chip>`。**工具链由芯片家族决定**:
 pio run -d projects/gateway_basic_esp32s3                   # 编译
 pio run -d projects/gateway_basic_esp32s3 -t upload         # 烧录
 
-# Mote(首次需 ~4 GB NCS 下载)
+# Mote(需先安装外置 NCS,详见 docs/build.md)
 cd projects/mote_motion_nrf52840
-west init -l . && west update                                # 一次性
-west build -b xiao_ble                                       # 编译
-cp build/zephyr/zephyr.uf2 /Volumes/XIAOBOOT/                # 烧录 (双击 RESET 进 XIAOBOOT)
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2  # 编译 UF2
+cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/           # 烧录 (上电后 5 秒内出现 /Volumes/XIAO-SENSE/)
 ```
 
 完整命令矩阵见 [`docs/build.md`](docs/build.md)。

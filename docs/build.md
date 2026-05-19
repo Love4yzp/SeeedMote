@@ -29,35 +29,36 @@ nrfutil toolchain-manager install --ncs-version v2.9.2
 
 完整指引参考 v2.0 仓库 `docs/dev-setup.md`(同款流程)。
 
-### Bootstrap 一个新 mote project(一次性,~4 GB)
+### NCS workspace 说明
 
-```bash
-cd projects/mote_motion_nrf52840
-west init -l .
-west update
-```
+NCS v2.9.2 安装在 `~/ncs/v2.9.2/`(由 nrfutil toolchain-manager 管理,共享,不在 project 目录里)。
+
+编译时通过 `ZEPHYR_BASE` 指向它,**无需在 project 目录下跑 `west init` / `west update`**。
 
 ### 编译 / 烧录 / 监视
 
 ```bash
 cd projects/mote_motion_nrf52840
 
-# 编译
-west build -b xiao_ble
+# 编译 UF2 bootloader 可直接运行的镜像
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2
 
 # 清编译
-west build -t pristine
+west build -d build_uf2 -t pristine
 
 # 烧录:首选 UF2 拖拽
-cp build/zephyr/zephyr.uf2 /Volumes/XIAOBOOT/
-# 进 XIAOBOOT 模式:双击 XIAO 板上的 RESET 按钮
+# 上电后 5 秒内 /Volumes/XIAO-SENSE/ 自动出现(Adafruit bootloader 上电即有 DFU 窗口)
+cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/
+# Fallback:如果 app 已正常运行想进 bootloader,双击 XIAO 板上的 RESET 按钮
 
 # 备选:SWD(需要 J-Link / CMSIS-DAP)
 west flash
 
-# RTT 日志(SWD 探针)
+# 监视日志
+# 首选:USB CDC(mote 上电后出现 /dev/cu.usbmodem*)
+tio /dev/cu.usbmodem*
+# 备选:RTT(SWD 探针)
 JLinkRTTViewer
-# 或 J-Link Commander + RTT telnet
 ```
 
 ### 不要做的事(west 侧)
@@ -128,6 +129,7 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 | PIO + Zephyr: `FileExistsError: zephyr/` | PIO 框架 bug,`os.makedirs` 不带 exist_ok | **不要用 PIO + Zephyr**,走 west(已是本架构默认) |
 | west: 找不到 `ZEPHYR_BASE` | 没在 NCS toolchain 环境中 | `nrfutil toolchain-manager launch --` 包一层,或确认 `.west/` 存在 |
 | west build 报老 API 找不到 | NCS 版本不对 | `cat zephyr/VERSION`,应是 3.7.x;否则 `west update` |
+| XIAO ESP32-S3 串口不可见 | 板子无 USB-UART bridge IC | `sdkconfig.defaults` 加 `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` |
 
 ---
 
@@ -136,11 +138,11 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 | 任务 | Mote | Gateway |
 |---|---|---|
 | 安装工具链 | `nrfutil install toolchain-manager` + NCS | `brew install platformio` |
-| 拉源码 | `west init -l . && west update` | (PIO 按需拉) |
-| 编译 | `west build -b xiao_ble`(step 3+ 切 `xiao_ble/nrf52840/sense`) | `pio run -d projects/<name>` |
-| 烧录 | `cp build/.../*.uf2 /Volumes/XIAOBOOT/` | `pio run -d projects/<name> -t upload` |
-| 监视 | `JLinkRTTViewer` 或 `tio /dev/cu.usbmodem*` | `pio device monitor -d projects/<name>` |
-| 清产物 | `west build -t pristine` | `rm -rf projects/<name>/.pio` |
+| 拉源码 | NCS 已在 `~/ncs/v2.9.2/`,无需 bootstrap | (PIO 按需拉) |
+| 编译 | `ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2` | `pio run -d projects/<name>` |
+| 烧录 | `cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/`(上电 5 秒内自动出现) | `pio run -d projects/<name> -t upload` |
+| 监视 | `tio /dev/cu.usbmodem*`(USB CDC);`JLinkRTTViewer`(SWD) | `pio device monitor -d projects/<name>` |
+| 清产物 | `west build -d build_uf2 -t pristine` | `rm -rf projects/<name>/.pio` |
 
 ---
 
@@ -149,8 +151,9 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 烧录两块板后,gateway 串口应看到每个 mote 至少每 100 ms 一行 JSON:
 
 ```
-I (12345) gateway: adv heard: aa:bb:cc:dd:ee:ff rssi=-52 len=15
-I (12346) gateway: {"ts":12346,"gw_id":"…","mote_mac":"aa:bb:…","rssi":-52,"ev":"MOVING","boot":42513,"ctr":17}
+{"ts":8868528,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"MOVING","boot":47160,"ctr":425}
+{"ts":8872543,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"PICK_UP","boot":47160,"ctr":429}
+{"ts":8906822,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"STILL","boot":47160,"ctr":463}
 ```
 
 判断好坏:
@@ -162,4 +165,3 @@ I (12346) gateway: {"ts":12346,"gw_id":"…","mote_mac":"aa:bb:…","rssi":-52,"
 | JSON `ctr` 每秒只 +1 但同一 ctr 重复出现 | 正常:adv 100ms,counter 1Hz;消费侧用 `(mote_mac, boot, ctr)` 去重 |
 | `boot` 重启后改变 | 正常:mote 每次启动重 roll `boot_uuid` |
 | 完全没有 `adv heard` | mote 没在广播,看 RTT(`JLinkRTTViewer`)确认 `adv started` |
-
