@@ -1,0 +1,46 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+.cache/
+
+# Build artifacts
+build/
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+
+# ESP-IDF
+sdkconfig
+sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
+managed_components/
+dependencies.lock
+
+# Zephyr / west — only inside mote projects (workspace state, NCS sources)
+.west/
+**/build/
+nrf/
+nrfxlib/
+modules/
+bootloader/
+test/
+tools/
+zephyr/
+zephyr-sources/
+
+# IDE / OS
+.idea/
+.DS_Store
+*.swp
+*~
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+.envrc

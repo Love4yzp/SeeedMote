@@ -1,0 +1,31 @@
+# SeeedMote v2 — west manifest for the mote project.
+#
+# Mote uses west + nRF Connect SDK (NCS), NOT PlatformIO. PIO's Zephyr
+# framework is stuck on Zephyr 2.7 (2021), too old for our low-power BLE
+# work — see docs/architecture.md for the dual-track rationale.
+#
+# Bootstrap (one-time):
+#   cd projects/mote_motion_nrf52840
+#   west init -l .
+#   west update          # downloads ~4 GB of NCS + Zephyr sources
+#
+# Build:
+#   west build -b xiao_ble
+#
+# Flash (UF2 drag-n-drop):
+#   cp build/zephyr/zephyr.uf2 /Volumes/XIAOBOOT/
+
+manifest:
+  self:
+    path: projects/mote_motion_nrf52840
+
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+
+  projects:
+    - name: sdk-nrf
+      remote: ncs
+      revision: v2.9.2
+      path: nrf
+      import: true

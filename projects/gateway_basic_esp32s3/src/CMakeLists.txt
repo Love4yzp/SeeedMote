@@ -1,0 +1,10 @@
+# SeeedMote v2 — gateway main component build manifest (ESP-IDF).
+#
+# PlatformIO synthesises the rest of the IDF project layout around this file.
+# To add a new source, append it to SRCS.
+
+idf_component_register(
+    SRCS        "main.c"
+    INCLUDE_DIRS "."
+    REQUIRES    driver esp_common esp_system freertos log
+)

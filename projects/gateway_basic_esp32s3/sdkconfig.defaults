@@ -1,0 +1,12 @@
+# Pin the app version explicitly so ESP-IDF skips git_describe at configure
+# (PIO ships ESP-IDF as a flat tarball, so git lookups inside its components
+# fail and abort configure with a confusing error).
+CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
+CONFIG_APP_PROJECT_VER="0.1.0"
+
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_COLORS=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+CONFIG_BT_ENABLED=n
+CONFIG_ESP_WIFI_ENABLED=n
