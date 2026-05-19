@@ -19,6 +19,11 @@ Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 多
                                                                             * 业务接入后
 ```
 
+默认空中格式是 **BTHome v2 BLE advertising**。Mote 不建立长连接,通过
+Service Data UUID `0xFCD2` 广播标准 `packet id` / `moving` /
+`vibration` / `count` 对象。没有业务用途的历史私有字段不进入默认
+air format。
+
 ## 三个独立维度
 
 | 维度 | 内容 | 决定 |
@@ -98,15 +103,15 @@ Project 名格式:`<role>_<function>_<chip>`(如 `mote_motion_nrf52840`、`gatew
 | 共享 `lib/` 层 | 第三个 project 才考虑 |
 | `tools/codegen` / `tools/scaffold` | 没有第二个 mote 形态前不做 |
 | 端到端加密 / 多租户 / ACL | v2.1+ |
-| 网关间协调 / 选主 / 集群去重 | 显式拒绝,消费侧 `(device_id, boot_uuid, event_counter)` 去重 |
+| 网关间协调 / 选主 / 集群去重 | 显式拒绝,消费侧按 BTHome `count` + 设备地址去重 |
 
 ## 实测验证(2026-05)
 
 | 项 | 状态 | 详情 |
 |---|---|---|
 | Gateway PIO + ESP-IDF 编译 | ✅ 通过 | 234 KB firmware.bin,22.4% flash,需 `set(PROJECT_VER ...)` 绕 git_describe |
-| Gateway BLE observer + JSON 出口 | ✅ 实装 | NimBLE passive scan;解码 `contracts/airframe.yaml` v1;UART 一行一帧 |
+| Gateway BLE observer + JSON 出口 | ✅ 实装 | NimBLE passive scan;解码 BTHome v2 Service Data;UART 一行一帧 |
 | Mote west + NCS 编译 | ⏳ 结构对齐 v2.0 已工作样式 | 实际 `west update` (~4 GB) 留待业务开发时触发 |
-| Mote bring-up step 2 (BLE adv) | ✅ 实装(待板上验证) | 100 ms non-conn adv、11 字节静态 payload;step 3+ 接 IMU |
-| Contract `contracts/airframe.yaml` v1 | ✅ 落地 | mote / gateway 共同来源,无 MIC、需部署前补认证 |
+| Mote bring-up step 2 (BLE adv) | ✅ 实装(待板上验证) | BTHome v2 non-connectable adv;step 3+ 接 IMU |
+| Contract `contracts/airframe.yaml` v1 | ✅ 落地 | SeeedMote BTHome 对象映射,无加密、需部署前补认证 / bindkey |
 | PIO + Zephyr(预想路线) | ❌ 推翻 | Zephyr 2.7.1 太旧、bug 多、无 XIAO 板 —— 死路 |

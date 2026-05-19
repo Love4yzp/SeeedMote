@@ -148,20 +148,19 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 
 ## 端到端验证(mote ↔ gateway)
 
-烧录两块板后,gateway 串口应看到每个 mote 至少每 100 ms 一行 JSON:
+烧录两块板后,gateway 串口应看到 mote 的 BTHome motion 事件 JSON:
 
 ```
-{"ts":8868528,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"MOVING","boot":47160,"ctr":425}
-{"ts":8872543,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"PICK_UP","boot":47160,"ctr":429}
-{"ts":8906822,"gw_id":"441bf6804166","mote_mac":"f0:e3:91:2c:ec:19","rssi":-98,"ev":"STILL","boot":47160,"ctr":463}
+{"ts":8868528,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":true,"vibration":false,"pid":169,"ctr":425}
+{"ts":8872543,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":true,"vibration":true,"pid":173,"ctr":429}
+{"ts":8906822,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":false,"vibration":false,"pid":207,"ctr":463}
 ```
 
 判断好坏:
 
 | 现象 | 结论 |
 |---|---|
-| 看到 `adv heard` 但没 JSON | mfg_data 不匹配 v1(查 `contracts/airframe.yaml`) |
-| JSON `ev` 在 STILL/MOVING/PICK_UP 之间循环 | mote `adv_pump_task` 正常 |
-| JSON `ctr` 每秒只 +1 但同一 ctr 重复出现 | 正常:adv 100ms,counter 1Hz;消费侧用 `(mote_mac, boot, ctr)` 去重 |
-| `boot` 重启后改变 | 正常:mote 每次启动重 roll `boot_uuid` |
+| 看到 `adv heard` 但没 JSON | BTHome Service Data 不匹配 v1 映射(查 `contracts/airframe.yaml`) |
+| JSON `moving` / `vibration` 随动作变化 | mote 状态机和 BTHome payload 更新正常 |
+| JSON `pid` / `ctr` 重复出现 | 正常:同一 payload 可能被重复广播;BTHome 接收端可用 `pid`,业务消费侧可用 `(mote_mac, ctr)` 去重 |
 | 完全没有 `adv heard` | mote 没在广播,看 RTT(`JLinkRTTViewer`)确认 `adv started` |

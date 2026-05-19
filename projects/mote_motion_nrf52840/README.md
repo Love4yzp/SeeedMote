@@ -4,7 +4,7 @@
 **Function**: `motion` —— IMU 触发的动作检测(未来扩展时会有 `env`、`button`、`contact` 等其他 function)
 **Chip**: `nrf52840` —— **决定走 west + NCS 工具链**
 **Board**: Seeed XIAO nRF52840 Sense(Zephyr board id: `xiao_ble/nrf52840/sense`)
-**Status**: LSM6DS3TR-C IMU 实时采样,`STILL/MOVING/PICK_UP` 状态机,connectable BLE adv 广播 [`contracts/airframe.yaml`](../../contracts/airframe.yaml) v1 payload,USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。无 System OFF。
+**Status**: LSM6DS3TR-C IMU 实时采样,状态机驱动 non-connectable BTHome v2 Service Data 广播(UUID=`0xFCD2`,对象映射见 [`contracts/airframe.yaml`](../../contracts/airframe.yaml)),USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。无 System OFF。
 
 ## ⚠️ 这个 project 用 west(因为 chip 是 nrf52840)
 

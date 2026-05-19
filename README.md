@@ -14,9 +14,9 @@
 
 端到端骨架打通并已验证(2026-05):
 
-- **Mote**:LSM6DS3TR-C IMU 实时采样,`STILL/MOVING/PICK_UP` 状态机驱动 11 字节 manufacturer-specific payload,connectable BLE adv,USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
-- **Gateway**:NimBLE OBSERVER 持续扫描,解码 `mfg_id=0xFFFF` 帧,UART 输出 JSON 事件(字段:`ts/gw_id/mote_mac/rssi/ev/boot/ctr`)。无 Wi-Fi、无 MQTT。
-- **Contract**:[`contracts/airframe.yaml`](contracts/airframe.yaml) v1 —— mote / gateway 双方对齐的唯一真源。
+- **Mote**:LSM6DS3TR-C IMU 实时采样,状态机驱动 BTHome v2 Service Data 广播(UUID=`0xFCD2`,对象:`packet id/moving/vibration/count`),USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
+- **Gateway**:NimBLE OBSERVER 持续扫描,解码 BTHome v2 motion profile,UART 输出 JSON 事件(字段:`ts/gw_id/mote_mac/rssi/moving/vibration/pid/ctr`)。无 Wi-Fi、无 MQTT。
+- **Contract**:[`contracts/airframe.yaml`](contracts/airframe.yaml) v1 —— SeeedMote 对 BTHome 对象的映射,是 mote / gateway 双方对齐的唯一真源。
 - **未做**:MQTT 出口、System OFF、消息认证 / allowlist。
 
 ## ⚠️ 双轨工具链(看 chip 后缀,不看 role 前缀)
@@ -65,7 +65,7 @@ seeedmote-v2/
 │       ├── platformio.ini + CMakeLists.txt + sdkconfig.defaults + src/
 ├── boards/                         ← 自定义 board JSON(目前空,等需要时填)
 ├── contracts/                      ← 跨设备契约
-│   └── airframe.yaml               ← mote → gateway BLE 帧 v1
+│   └── airframe.yaml               ← mote → gateway BTHome 映射 v1
 └── docs/
     ├── for-ai-agents.md            ← ⭐ AI Agent 操作手册(必读)
     ├── architecture.md             ← 设计总览
