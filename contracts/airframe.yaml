@@ -1,0 +1,116 @@
+# SeeedMote v2 — airframe contract (mote → gateway, uplink only).
+#
+# This file is the single source of truth for the BLE manufacturer-specific
+# data layout used by every SeeedMote uplink. Both the mote firmware
+# (projects/mote_motion_nrf52840/src/main.c) and every gateway parser
+# (projects/gateway_basic_esp32s3/src/main.c, …) MUST match this exactly.
+#
+# Changing this file is a cross-device change. Per docs/for-ai-agents.md:
+# AI agents must not edit it without explicit human instruction, and any
+# field change requires synchronised edits in at least one mote and one
+# gateway implementation in the same review.
+#
+# Version negotiation:
+#   - proto_version is bumped on any breaking layout change.
+#   - Gateways MUST drop frames whose proto_version they do not implement.
+#   - Adding a reserved-range event_type is NOT a breaking change.
+
+contract:
+  name: seeedmote-airframe
+  version: 1
+  direction: mote_to_gateway       # uplink only; downlink lives in v2 GATT.
+  transport: ble-adv-manufacturer  # AD type 0xFF (Manufacturer Specific Data)
+  byte_order: little-endian
+  total_length_bytes: 11           # excluding the 1-byte AD length / 1-byte AD type prefix
+
+fields:
+  - name: company_id
+    offset: 0
+    size: 2
+    type: u16
+    value: 0xFFFF
+    note: |
+      Bluetooth SIG "test" Company Identifier. Replace with a real
+      assigned CID before any non-prototype deployment. Gateways MUST
+      filter on this value.
+
+  - name: proto_version
+    offset: 2
+    size: 1
+    type: u8
+    value: 0x01
+    note: Bump on any breaking change to this contract.
+
+  - name: event_type
+    offset: 3
+    size: 1
+    type: u8
+    enum:
+      0x00: STILL          # IMU detected no motion since last frame
+      0x01: MOVING         # IMU detected motion above threshold
+      0x02: PICK_UP        # transient orientation change
+      # 0x03..0x0F reserved for future motion events
+      #   (BUTTON, SHAKE, TILT, IMPACT, …)
+      # 0x10..0xFE reserved for downlink ack codes once GATT lands
+      # 0xFF reserved (never emit)
+    reserved_ranges:
+      - [0x03, 0x0F]       # future motion events
+      - [0x10, 0xFE]       # downlink config ack codes (v2)
+      - [0xFF, 0xFF]       # never emit
+
+  - name: boot_uuid
+    offset: 4
+    size: 2
+    type: u16
+    note: |
+      Random 16-bit value picked once per mote boot. Combined with
+      mote_mac it gives consumers a stable per-boot key for deduping
+      across (mote_mac, boot_uuid, event_counter).
+
+  - name: event_counter
+    offset: 6
+    size: 4
+    type: u32
+    note: |
+      Monotonic per-boot counter, incremented on every emitted frame.
+      Resets on reboot — pair with boot_uuid for cross-reboot uniqueness.
+
+  - name: reserved
+    offset: 10
+    size: 1
+    type: u8
+    value: 0x00
+    note: |
+      Pad to fixed 11-byte length so gateways can length-check exactly.
+      Future expansion uses proto_version bump, not this byte.
+
+# Gateway output (informational, not part of the airframe itself).
+#
+# The gateway emits one JSON line per accepted frame on its primary
+# console / log backend. The schema lives next to gateway code for now;
+# promote to contracts/ once a second gateway implementation exists.
+#
+#   {
+#     "ts":       <int>   // gateway uptime in ms
+#     "gw_id":    <hex>   // gateway BLE MAC, 12 hex chars
+#     "mote_mac": <hex>   // mote BLE MAC, colon-separated
+#     "rssi":     <int>   // dBm, gateway-reported
+#     "ev":       <str>   // event_type enum name (STILL/MOVING/...)
+#     "boot":     <int>   // boot_uuid
+#     "ctr":     <int>   // event_counter
+#   }
+#
+# Dedup is NOT done by the gateway — consumers MUST key on
+# (mote_mac, boot, ctr) and discard duplicates.
+
+security:
+  authenticity: none-yet
+  notes: |
+    v1 has no MIC, no allowlist, no per-mote key. Any device can forge
+    SeeedMote frames. This is acceptable for bring-up and local demos
+    only. Before any deployment with real consequence, add:
+      - per-mote pre-shared key
+      - AES-CCM MIC over (proto_version || event_type || boot_uuid
+        || event_counter)
+      - mote_mac allowlist on the gateway
+      - replay window check on (boot_uuid, event_counter)
