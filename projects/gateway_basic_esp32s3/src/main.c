@@ -9,19 +9,9 @@
  *
  * Board: Seeed XIAO ESP32-S3 (board id: seeed_xiao_esp32s3).
  *
- * Wire format (mote → gateway, manufacturer-specific data, mfg_data length
- * is 11 bytes). Must stay in lockstep with
- * projects/mote_motion_nrf52840/src/main.c until contracts/airframe.yaml
- * lands — see plan doc.
- *
- *   [2B] Company ID         = 0xFFFF (testing)
- *   [1B] proto_version      = 0x01
- *   [1B] event_type         = 0x00 STILL | 0x01 MOVING | 0x02 PICK_UP
- *                             (0x03..0x0F reserved: BUTTON/SHAKE/TILT/IMPACT)
- *                             (0x10..0xFE reserved: downlink config ack)
- *   [2B] boot_uuid          = little-endian, randomised at mote boot
- *   [4B] event_counter      = little-endian, monotonic per boot
- *   [1B] reserved
+ * Wire format: contracts/airframe.yaml v1 (11 bytes, little-endian). The
+ * field offsets and enum codes below mirror that file — any change there
+ * MUST land here in the same review, and vice versa.
  *
  * No deduplication is done here — that is the consumer's responsibility,
  * keyed on (mote_mac, boot, ctr).
@@ -111,7 +101,11 @@ static void parse_seeedmote_adv(const uint8_t *data, size_t len,
         if (ad_type == BLE_AD_TYPE_MFG_DATA) {
             const uint8_t *mfg = p + 2;
             size_t mfg_len = ad_len - 1;
-            if (mfg_len >= MFG_PAYLOAD_LEN) {
+            /* contracts/airframe.yaml v1 fixes payload at exactly 11 bytes
+             * with a zero reserved byte. Reject anything else so a future
+             * proto_version bump (or a foreign device that happens to use
+             * 0xFFFF) cannot smuggle frames past us. */
+            if (mfg_len == MFG_PAYLOAD_LEN && mfg[10] == 0x00) {
                 uint16_t cid = (uint16_t)mfg[0] | ((uint16_t)mfg[1] << 8);
                 if (cid == SEEEDMOTE_COMPANY_ID && mfg[2] == SEEEDMOTE_PROTO_V1) {
                     uint8_t  ev   = mfg[3];
