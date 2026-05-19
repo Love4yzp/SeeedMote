@@ -6,5 +6,5 @@
 idf_component_register(
     SRCS        "main.c"
     INCLUDE_DIRS "."
-    REQUIRES    driver esp_common esp_system freertos log
+    REQUIRES    driver esp_common esp_system freertos log bt nvs_flash
 )

@@ -6,7 +6,30 @@ CONFIG_APP_PROJECT_VER="0.1.0"
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_COLORS=y
-CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+# XIAO ESP32-S3 has no USB-UART bridge IC; the USB connector goes straight
+# to the chip's native USB-Serial-JTAG peripheral. Route console there so
+# `pio device monitor` actually sees app log on /dev/cu.usbmodem*.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
-CONFIG_BT_ENABLED=n
+
+# XIAO ESP32-S3 ships with 8 MB flash; ESP-IDF default is 2 MB which truncates
+# the partition table at the bootloader stage. Pin explicitly.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+
+# BLE: NimBLE host, OBSERVER role only (scan + decode mfg_data).
+# First version is uplink-only; gateway does not connect to motes.
+# v2 will flip ROLE_CENTRAL=y to proxy GATT Config Service writes.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+# BROADCASTER must stay y: ESP-IDF 5.2.2 NimBLE has an unguarded call to
+# ble_gap_adv_active_instance() in ble_gap.c (host shutdown path) that
+# only links when NIMBLE_BLE_ADVERTISE || NIMBLE_BLE_CONNECT is true.
+# We never call adv APIs, so the role flag costs only a few KB of code.
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+# OBSERVER defaults to y; left implicit.
+
+# WiFi stays off — first-version gateway only emits to UART.
 CONFIG_ESP_WIFI_ENABLED=n
