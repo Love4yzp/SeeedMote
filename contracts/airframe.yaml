@@ -72,8 +72,12 @@ fields:
     size: 4
     type: u32
     note: |
-      Monotonic per-boot counter, incremented on every emitted frame.
-      Resets on reboot — pair with boot_uuid for cross-reboot uniqueness.
+      Monotonic per-boot counter, incremented on every payload update.
+      The same counter value MAY be broadcast in multiple back-to-back
+      advertisements (mote chooses adv interval independently of update
+      cadence); consumers MUST dedupe on (mote_mac, boot_uuid,
+      event_counter) and treat repeated triples as one event. Resets
+      on reboot — pair with boot_uuid for cross-reboot uniqueness.
 
   - name: reserved
     offset: 10
