@@ -30,5 +30,9 @@ CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 # OBSERVER defaults to y; left implicit.
 
-# WiFi stays off — first-version gateway only emits to UART.
-CONFIG_ESP_WIFI_ENABLED=n
+# WiFi: APSTA mode — STA connects to user network, AP always-on config portal.
+CONFIG_ESP_WIFI_ENABLED=y
+
+# BLE + WiFi software coexistence (shared radio on ESP32-S3).
+# Without this, WiFi TX bursts silently drop BLE scan windows.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
