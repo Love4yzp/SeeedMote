@@ -137,7 +137,29 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 |---|---|---|
 | 安装工具链 | `nrfutil install toolchain-manager` + NCS | `brew install platformio` |
 | 拉源码 | `west init -l . && west update` | (PIO 按需拉) |
-| 编译 | `west build -b xiao_ble` | `pio run -d projects/<name>` |
+| 编译 | `west build -b xiao_ble`(step 3+ 切 `xiao_ble/nrf52840/sense`) | `pio run -d projects/<name>` |
 | 烧录 | `cp build/.../*.uf2 /Volumes/XIAOBOOT/` | `pio run -d projects/<name> -t upload` |
 | 监视 | `JLinkRTTViewer` 或 `tio /dev/cu.usbmodem*` | `pio device monitor -d projects/<name>` |
 | 清产物 | `west build -t pristine` | `rm -rf projects/<name>/.pio` |
+
+---
+
+## 端到端验证(mote ↔ gateway)
+
+烧录两块板后,gateway 串口应看到每个 mote 至少每 100 ms 一行 JSON:
+
+```
+I (12345) gateway: adv heard: aa:bb:cc:dd:ee:ff rssi=-52 len=15
+I (12346) gateway: {"ts":12346,"gw_id":"…","mote_mac":"aa:bb:…","rssi":-52,"ev":"MOVING","boot":42513,"ctr":17}
+```
+
+判断好坏:
+
+| 现象 | 结论 |
+|---|---|
+| 看到 `adv heard` 但没 JSON | mfg_data 不匹配 v1(查 `contracts/airframe.yaml`) |
+| JSON `ev` 在 STILL/MOVING/PICK_UP 之间循环 | mote `adv_pump_task` 正常 |
+| JSON `ctr` 每秒只 +1 但同一 ctr 重复出现 | 正常:adv 100ms,counter 1Hz;消费侧用 `(mote_mac, boot, ctr)` 去重 |
+| `boot` 重启后改变 | 正常:mote 每次启动重 roll `boot_uuid` |
+| 完全没有 `adv heard` | mote 没在广播,看 RTT(`JLinkRTTViewer`)确认 `adv started` |
+

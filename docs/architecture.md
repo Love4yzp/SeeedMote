@@ -61,7 +61,7 @@ Project 名格式:`<role>_<function>_<chip>`(如 `mote_motion_nrf52840`、`gatew
 | 2 | **工具链由 chip 后缀决定,与 role 无关** | `_nrf52*` = west,`_esp32*` = PIO。role 只是命名描述 |
 | 3 | **无 `lib/` 共享层** | 第三个 project 才有数据点判断真复用 |
 | 4 | **role / chip / function 是三个独立维度** | 不建 `mote/` `gateway/` 顶层目录,组合在命名里表达 |
-| 5 | **`contracts/` 本骨架不写内容** | 跨设备契约要真业务验证才知道字段 |
+| 5 | **`contracts/` 改动是人决策、commit 拆三段** | 跨设备契约;AI 不单边改,必须 contract → mote → gateway 三 commit |
 
 ## 与 v2.0 仓库的关系
 
@@ -105,5 +105,8 @@ Project 名格式:`<role>_<function>_<chip>`(如 `mote_motion_nrf52840`、`gatew
 | 项 | 状态 | 详情 |
 |---|---|---|
 | Gateway PIO + ESP-IDF 编译 | ✅ 通过 | 234 KB firmware.bin,22.4% flash,需 `set(PROJECT_VER ...)` 绕 git_describe |
+| Gateway BLE observer + JSON 出口 | ✅ 实装 | NimBLE passive scan;解码 `contracts/airframe.yaml` v1;UART 一行一帧 |
 | Mote west + NCS 编译 | ⏳ 结构对齐 v2.0 已工作样式 | 实际 `west update` (~4 GB) 留待业务开发时触发 |
+| Mote bring-up step 2 (BLE adv) | ✅ 实装(待板上验证) | 100 ms non-conn adv、11 字节静态 payload;step 3+ 接 IMU |
+| Contract `contracts/airframe.yaml` v1 | ✅ 落地 | mote / gateway 共同来源,无 MIC、需部署前补认证 |
 | PIO + Zephyr(预想路线) | ❌ 推翻 | Zephyr 2.7.1 太旧、bug 多、无 XIAO 板 —— 死路 |

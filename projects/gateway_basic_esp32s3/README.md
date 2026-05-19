@@ -4,7 +4,7 @@
 **Function**: `basic` —— 基础 MQTT 出口(未来扩展时会有 `webhook`、`opcua`、`grpc` 等其他 function)
 **Chip**: `esp32s3` —— **决定走 PlatformIO + ESP-IDF 工具链**
 **Board**: Seeed XIAO ESP32-S3(PIO board id: `seeed_xiao_esp32s3`)
-**Status**: hello blink only,**已实测编译通过**(234KB firmware.bin,22.4% flash)。
+**Status**: BLE observer + UART JSON 出口 —— NimBLE passive scan,解码 [`contracts/airframe.yaml`](../../contracts/airframe.yaml) v1,每帧一行 JSON 到 UART。无 Wi-Fi、无 MQTT。
 
 ## ⚠️ 这个 project 用 PIO(因为 chip 是 esp32s3)
 

@@ -3,8 +3,8 @@
 **Role**: `mote` —— BLE 节点(电池供电、深度睡眠、事件广播)
 **Function**: `motion` —— IMU 触发的动作检测(未来扩展时会有 `env`、`button`、`contact` 等其他 function)
 **Chip**: `nrf52840` —— **决定走 west + NCS 工具链**
-**Board**: Seeed XIAO nRF52840 Sense(Zephyr board id: `xiao_ble`)
-**Status**: hello blink only — 无 BLE、无传感器、无 System OFF。
+**Board**: Seeed XIAO nRF52840 Sense(Zephyr board id: `xiao_ble`,IMU 启用后切 `xiao_ble/nrf52840/sense`)
+**Status**: bring-up step 2 —— BLE non-connectable adv 广播 [`contracts/airframe.yaml`](../../contracts/airframe.yaml) v1 静态 payload(`STILL/MOVING/PICK_UP` 循环、100 ms 周期、随机 boot_uuid、单调 ctr)。无 IMU、无 USB CDC、无 System OFF。
 
 ## ⚠️ 这个 project 用 west(因为 chip 是 nrf52840)
 
@@ -32,7 +32,7 @@ west update          # 下载 NCS v2.9.2 + Zephyr 3.7 + nrfxlib + MCUBoot 等
 
 - 应用代码:`src/main.c`(新增 `.c` 在 `CMakeLists.txt` 的 `target_sources` 追加)
 - Zephyr 配置:`prj.conf`
-- 板特化 DTS overlay(如需):`app.overlay`(目前不需要)
+- 板特化 DTS overlay(如需):`app.overlay` —— step 3 接 IMU 时使用 `xiao_ble/nrf52840/sense` 变体下的 LSM6DS3TR-C(`imu` alias);step 2 不需要
 
 **不要动的目录**:本 project 之外的任何文件。改 `contracts/`、改别的 project、改根 `README.md`、改 `docs/` 都要先问人。
 
@@ -40,8 +40,8 @@ west update          # 下载 NCS v2.9.2 + Zephyr 3.7 + nrfxlib + MCUBoot 等
 
 ```bash
 cd projects/mote_motion_nrf52840
-west build -b xiao_ble                           # 编译
-west build -b xiao_ble -- -DCONF_FILE=prj.conf   # 显式 conf
+west build -b xiao_ble                           # 编译 (step 2,无 IMU)
+west build -b xiao_ble/nrf52840/sense            # step 3+ 接 IMU 时切 sense 变体
 
 # 烧录(优先 UF2,双击 RESET 进 XIAOBOOT 模式)
 cp build/zephyr/zephyr.uf2 /Volumes/XIAOBOOT/

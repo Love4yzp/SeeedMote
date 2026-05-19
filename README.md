@@ -12,7 +12,12 @@
 
 ## Status
 
-骨架阶段 — hello blink + 编译验证。**无业务代码、无 BLE、无 MQTT、无 contracts**。
+端到端骨架打通(2026-05):
+
+- **Mote**:bring-up step 2 —— BLE non-connectable adv 广播 11 字节 SeeedMote 帧(`STILL/MOVING/PICK_UP` 循环、100 ms 周期)。无 IMU、无 USB CDC、无 System OFF。
+- **Gateway**:BLE observer 持续扫描,解码 manufacturer-specific 帧,UART 一行一个 JSON 事件。无 Wi-Fi、无 MQTT。
+- **Contract**:[`contracts/airframe.yaml`](contracts/airframe.yaml) v1 —— mote / gateway 双方对齐的唯一真源。
+- **未做**:MQTT 出口、IMU 触发、System OFF、消息认证 / allowlist。
 
 ## ⚠️ 双轨工具链(看 chip 后缀,不看 role 前缀)
 
@@ -60,7 +65,8 @@ seeedmote-v2/
 │   └── gateway_basic_esp32s3/      ← PIO + ESP-IDF,XIAO ESP32-S3
 │       ├── platformio.ini + CMakeLists.txt + sdkconfig.defaults + src/
 ├── boards/                         ← 自定义 board JSON(目前空,等需要时填)
-├── contracts/                      ← 跨设备契约(本骨架为空)
+├── contracts/                      ← 跨设备契约
+│   └── airframe.yaml               ← mote → gateway BLE 帧 v1
 └── docs/
     ├── for-ai-agents.md            ← ⭐ AI Agent 操作手册(必读)
     ├── architecture.md             ← 设计总览
@@ -73,7 +79,7 @@ seeedmote-v2/
 2. **工具链由 project 命名前缀绑死** — mote_*_nrf52840=west,*_esp32*=pio
 3. **无 `lib/` 共享层** — 第三个 project 出现前允许重复
 4. **role 是 project 属性,不是目录** — 用命名前缀区分
-5. **`contracts/` 当前为空** — 真业务跑通后再立
+5. **跨设备契约改动是人决策** — 只能通过 `contracts/` 协调,AI 不能自己改字段
 
 ## For AI agents
 

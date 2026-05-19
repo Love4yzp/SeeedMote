@@ -8,7 +8,12 @@
 
 这是 **SeeedMote v2** 仓库 —— Seeed 方案商团队的"参考架构家族"骨架。它衍生具体方案(冷链、急停、接触、资产追踪 …),最终通过 [SenseCraft Solution 平台](https://github.com/suharvest/app_collaboration) 投给集成商。
 
-当前状态:**hello blink 骨架阶段**。无 BLE、无传感器、无 MQTT、无 contracts。
+当前状态:**端到端骨架打通**。
+
+- mote 走到 bring-up step 2:BLE adv 静态 SeeedMote 帧
+- gateway 实现 BLE observer + UART JSON 出口
+- 跨设备契约:`contracts/airframe.yaml` v1(11 字节,uplink only,无 MIC)
+- 仍未做:MQTT 出口、IMU 触发、System OFF、消息认证
 
 ---
 
@@ -107,9 +112,10 @@ project 名格式:`<role>_<function>_<chip>`。**编译看 `_<chip>` 后缀,不�
 
 **这是跨设备改动,不要自己做**。
 
-- 写一份提案告诉用户"我建议在 `contracts/airframe.yaml` 加字段 X"
-- 等用户确认后,**一次性**:contracts + mote + gateway 三处同步改
-- contracts/ 当前为空占位,真要落 schema 必须先和用户对齐
+- 当前 contract: [`contracts/airframe.yaml`](../contracts/airframe.yaml) v1(mote → gateway,11 字节,uplink only)
+- 加字段 / 改 enum / 改字节序 都要先写提案给用户
+- 等用户确认后,**拆成三个 commit**:`contract:` schema → `mote:` 实现 → `gateway:` 实现
+- 反向也成立:看到 mote / gateway 代码与 contract 不一致,**先停下来报告**,不要单边修改
 
 ---
 

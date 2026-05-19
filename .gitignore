@@ -39,6 +39,9 @@ zephyr-sources/
 *.swp
 *~
 
+# Local AI tooling (per-machine permissions, etc.)
+.claude/
+
 # Python / tooling
 __pycache__/
 *.pyc
