@@ -17,9 +17,8 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
-# BLE: NimBLE host, OBSERVER role only (scan + decode mfg_data).
+# BLE: NimBLE host, OBSERVER role only (scan + decode BTHome service data).
 # First version is uplink-only; gateway does not connect to motes.
-# v2 will flip ROLE_CENTRAL=y to proxy GATT Config Service writes.
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_ROLE_CENTRAL=n

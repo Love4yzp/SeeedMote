@@ -10,9 +10,9 @@
 
 当前状态:**第一版端到端打通(2026-05)**。
 
-- mote:LSM6DS3TR-C IMU 实时采样,STILL/MOVING/PICK_UP 状态机,connectable BLE adv(BT_PERIPHERAL),USB CDC(product="seeedmote-motion")
-- gateway:NimBLE OBSERVER,JSON 出口字段:ts/gw_id/mote_mac/rssi/ev/boot/ctr
-- 跨设备契约:`contracts/airframe.yaml` v1(11 字节,uplink only,无 MIC)
+- mote:LSM6DS3TR-C IMU 实时采样,状态机驱动 non-connectable BTHome v2 Service Data adv(UUID=0xFCD2,对象 packet id/moving/vibration/count),USB CDC(product="seeedmote-motion")
+- gateway:NimBLE OBSERVER,JSON 出口字段:ts/gw_id/mote_mac/rssi/moving/vibration/pid/ctr
+- 跨设备契约:`contracts/airframe.yaml` v1(BTHome motion profile,uplink only,无加密)
 - 仍未做:MQTT 出口、System OFF、消息认证
 
 ---
@@ -108,11 +108,12 @@ project 名格式:`<role>_<function>_<chip>`。**编译看 `_<chip>` 后缀,不�
 
 构建:`pio run -d projects/gateway_basic_esp32s3`
 
-### 任务 C — 改跨设备契约(BLE 帧格式 / 出口 JSON 字段)
+### 任务 C — 改跨设备契约(BTHome 对象映射 / 出口 JSON 字段)
 
 **这是跨设备改动,不要自己做**。
 
-- 当前 contract: [`contracts/airframe.yaml`](../contracts/airframe.yaml) v1(mote → gateway,11 字节,uplink only)
+- 当前 contract: [`contracts/airframe.yaml`](../contracts/airframe.yaml) v1(mote → gateway,BTHome v2 Service Data,uplink only)
+- 默认空中格式是 BTHome 广播,不是长连接/GATT,也不是私有 manufacturer data
 - 加字段 / 改 enum / 改字节序 都要先写提案给用户
 - 等用户确认后,**拆成三个 commit**:`contract:` schema → `mote:` 实现 → `gateway:` 实现
 - 反向也成立:看到 mote / gateway 代码与 contract 不一致,**先停下来报告**,不要单边修改

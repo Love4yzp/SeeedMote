@@ -8,10 +8,10 @@ must match what is declared here, byte for byte.
 
 | File | Status | Covers |
 |---|---|---|
-| [`airframe.yaml`](airframe.yaml) | v1 — uplink only, no auth | `mote_motion_*` → `gateway_*` 11-byte manufacturer-specific frame |
+| [`airframe.yaml`](airframe.yaml) | v1 — BTHome v2, uplink only, no auth | `mote_motion_*` → `gateway_*` BTHome Service Data profile |
 
 Downlink (config writes) will live in a separate `config-service.yaml` once
-v2 GATT lands.
+connection-oriented configuration is a product requirement.
 
 ## How to change a contract
 
@@ -33,6 +33,7 @@ See `../docs/for-ai-agents.md` for the full operating manual.
 
 ## Versioning
 
-`proto_version` in the airframe is bumped on any breaking layout change.
-Gateways MUST drop frames whose `proto_version` they do not implement.
-Adding a reserved-range enum value is NOT a breaking change.
+`contract.version` is bumped on any breaking SeeedMote mapping change.
+BTHome object ids and their standard semantics remain governed by BTHome;
+adding a higher-numbered optional object is usually non-breaking because
+BTHome receivers parse object ids in ascending order and stop at unknown ids.

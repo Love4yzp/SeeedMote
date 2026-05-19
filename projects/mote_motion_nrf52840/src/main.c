@@ -3,30 +3,27 @@
  *
  * Role: BLE event mote. Samples the LSM6DS3TR-C IMU, classifies motion
  *       events (STILL / MOVING / PICK_UP), and broadcasts each event as
- *       a connectable BLE advertisement carrying a 11-byte manufacturer-
- *       specific payload. No reverse channel is implemented in this
- *       version, but the adv mode is connectable so a v2 GATT Config
- *       Service can be added without reconfiguring the BLE stack.
+ *       a BTHome v2 Service Data advertisement. No reverse channel is
+ *       implemented in this version; configuration and OTA are kept out of
+ *       the default air format.
  *
  * Board: Seeed XIAO nRF52840 Sense (board id: xiao_ble).
  *
- * Wire format (must stay in lockstep with gateway src/main.c until
- * contracts/airframe.yaml lands — see plan):
+ * Wire format (must stay in lockstep with contracts/airframe.yaml and the
+ * gateway parser):
  *
- *   [2B] Company ID         = 0xFFFF (testing)
- *   [1B] proto_version      = 0x01
- *   [1B] event_type         = 0x00 STILL | 0x01 MOVING | 0x02 PICK_UP
- *                             (0x03..0x0F reserved: BUTTON/SHAKE/TILT/IMPACT)
- *                             (0x10..0xFE reserved: downlink config ack)
- *   [2B] boot_uuid          = LE, randomised at boot
- *   [4B] event_counter      = LE, monotonic per boot
- *   [1B] reserved
+ *   AD type 0x16 Service Data - 16-bit UUID
+ *   [2B] UUID               = 0xFCD2, little-endian on air (D2 FC)
+ *   [1B] device_info        = BTHome v2, trigger-based, unencrypted (0x44)
+ *   [2B] packet id          = object 0x00, uint8 duplicate filter
+ *   [2B] moving             = object 0x22, uint8
+ *   [2B] vibration          = object 0x2C, uint8 (PICK_UP pulse)
+ *   [5B] count              = object 0x3E, uint32 event counter
  *
  * Detection happens here on the mote (physical-event semantics). Business
  * interpretation (which SKU, conversion, UI) lives on the consumer side.
- * Threshold parameters are #defines in this version; their names match the
- * v2 GATT characteristic names so the v2 patch only adds wire-up, not
- * renames.
+ * Threshold parameters are #defines in this version; keep their names stable
+ * so a future configuration channel can wire them up without renaming.
  */
 
 #include <stdbool.h>
@@ -40,21 +37,26 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
-#include <zephyr/random/random.h>
 #include <zephyr/usb/usb_device.h>
 
 LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 
 /* ---- Wire format constants ---------------------------------------------- */
 
-#define SEEEDMOTE_COMPANY_ID  0xFFFFu
-#define SEEEDMOTE_PROTO_V1    0x01u
+#define BTHOME_UUID_LSB       0xD2u
+#define BTHOME_UUID_MSB       0xFCu
+#define BTHOME_DEVINFO_V2_TRIGGER 0x44u
+
+#define BTHOME_OBJ_PACKET_ID  0x00u
+#define BTHOME_OBJ_MOVING     0x22u
+#define BTHOME_OBJ_VIBRATION  0x2Cu
+#define BTHOME_OBJ_COUNT_U32  0x3Eu
 
 #define EV_STILL   0x00u
 #define EV_MOVING  0x01u
 #define EV_PICKUP  0x02u
 
-/* ---- Detection parameters (v2 GATT Config Service field names) --------- */
+/* ---- Detection parameters (future config field names) ------------------- */
 
 /* First-pass defaults; tune in lab. Light items (rings, light shoes) likely
  * need PICKUP_PEAK_MG dropped to ~300-500. See plan risk note. */
@@ -86,44 +88,50 @@ enum mote_state {
 
 static enum mote_state current_state = STATE_STILL;
 
-static uint16_t boot_uuid;
 static uint32_t event_counter;
 
-struct __packed mfg_payload {
-    uint16_t company_id;     /* LE */
-    uint8_t  proto_version;
-    uint8_t  event_type;
-    uint16_t boot_uuid;      /* LE */
+struct __packed bthome_payload {
+    uint8_t  uuid_le[2];
+    uint8_t  device_info;
+    uint8_t  packet_id_id;
+    uint8_t  packet_id;
+    uint8_t  moving_id;
+    uint8_t  moving;
+    uint8_t  vibration_id;
+    uint8_t  vibration;
+    uint8_t  count_id;
     uint32_t event_counter;  /* LE */
-    uint8_t  reserved;
 };
-BUILD_ASSERT(sizeof(struct mfg_payload) == 11, "wire format must be 11 bytes");
+BUILD_ASSERT(sizeof(struct bthome_payload) == 14,
+             "BTHome motion payload must be 14 bytes");
 
-static struct mfg_payload payload;
+static struct bthome_payload payload;
 
 static struct bt_data adv_data[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
-    BT_DATA(BT_DATA_MANUFACTURER_DATA,
+    BT_DATA(BT_DATA_SVC_DATA16,
             (uint8_t *)&payload, sizeof(payload)),
-};
-
-static const struct bt_data scan_rsp[] = {
-    BT_DATA(BT_DATA_NAME_COMPLETE,
-            "seeedmote-motion", sizeof("seeedmote-motion") - 1),
 };
 
 /* ---- Adv ---------------------------------------------------------------- */
 
 static int update_payload_and_adv(uint8_t event_type)
 {
-    payload.company_id    = sys_cpu_to_le16(SEEEDMOTE_COMPANY_ID);
-    payload.proto_version = SEEEDMOTE_PROTO_V1;
-    payload.event_type    = event_type;
-    payload.boot_uuid     = sys_cpu_to_le16(boot_uuid);
-    payload.event_counter = sys_cpu_to_le32(++event_counter);
-    payload.reserved      = 0;
+    uint32_t next_counter = ++event_counter;
+
+    payload.uuid_le[0]    = BTHOME_UUID_LSB;
+    payload.uuid_le[1]    = BTHOME_UUID_MSB;
+    payload.device_info   = BTHOME_DEVINFO_V2_TRIGGER;
+    payload.packet_id_id  = BTHOME_OBJ_PACKET_ID;
+    payload.packet_id     = (uint8_t)next_counter;
+    payload.moving_id     = BTHOME_OBJ_MOVING;
+    payload.moving        = (event_type == EV_STILL) ? 0u : 1u;
+    payload.vibration_id  = BTHOME_OBJ_VIBRATION;
+    payload.vibration     = (event_type == EV_PICKUP) ? 1u : 0u;
+    payload.count_id      = BTHOME_OBJ_COUNT_U32;
+    payload.event_counter = sys_cpu_to_le32(next_counter);
     return bt_le_adv_update_data(adv_data, ARRAY_SIZE(adv_data),
-                                 scan_rsp, ARRAY_SIZE(scan_rsp));
+                                 NULL, 0);
 }
 
 /* ---- IMU sampling ------------------------------------------------------- */
@@ -261,9 +269,7 @@ int main(void)
 
     LOG_INF("seeedmote-v2 mote_motion_nrf52840 starting (usb_rc=%d)", usb_rc);
 
-    boot_uuid     = (uint16_t)sys_rand32_get();
     event_counter = 0;
-    LOG_INF("boot_uuid=0x%04x", boot_uuid);
 
     /* Bring BLE up first so adv is visible even if the IMU is dead —
      * easier to debug from the gateway side than a silent mote. */
@@ -280,22 +286,27 @@ int main(void)
         LOG_INF("imu device: %s", imu_dev->name);
     }
 
-    /* Pre-seed payload so the first scan reply is well-formed. */
-    payload.company_id    = sys_cpu_to_le16(SEEEDMOTE_COMPANY_ID);
-    payload.proto_version = SEEEDMOTE_PROTO_V1;
-    payload.event_type    = EV_STILL;
-    payload.boot_uuid     = sys_cpu_to_le16(boot_uuid);
+    /* Pre-seed payload so the first advertisement is well-formed. */
+    payload.uuid_le[0]    = BTHOME_UUID_LSB;
+    payload.uuid_le[1]    = BTHOME_UUID_MSB;
+    payload.device_info   = BTHOME_DEVINFO_V2_TRIGGER;
+    payload.packet_id_id  = BTHOME_OBJ_PACKET_ID;
+    payload.packet_id     = 0;
+    payload.moving_id     = BTHOME_OBJ_MOVING;
+    payload.moving        = 0;
+    payload.vibration_id  = BTHOME_OBJ_VIBRATION;
+    payload.vibration     = 0;
+    payload.count_id      = BTHOME_OBJ_COUNT_U32;
     payload.event_counter = sys_cpu_to_le32(0);
 
-    rc = bt_le_adv_start(BT_LE_ADV_CONN,
+    rc = bt_le_adv_start(BT_LE_ADV_NCONN,
                          adv_data, ARRAY_SIZE(adv_data),
-                         scan_rsp, ARRAY_SIZE(scan_rsp));
+                         NULL, 0);
     if (rc) {
         LOG_ERR("bt_le_adv_start failed: %d", rc);
         return rc;
     }
-    LOG_INF("advertising started (connectable, mfg_id=0x%04x)",
-            SEEEDMOTE_COMPANY_ID);
+    LOG_INF("advertising started (BTHome v2 service UUID 0xFCD2)");
 
     return 0;
 }
