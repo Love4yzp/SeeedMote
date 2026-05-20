@@ -6,8 +6,9 @@
  *       HTTP on the local Wi-Fi network.
  *
  *       HTTP endpoint:
- *         GET /        → browser UI for recent raw advertisement debug output
- *                        and live updates over the same path.
+ *         GET /        → browser UI with Parsed / Raw views
+ *         GET /raw     → short-poll JSON feed for recent advertisements
+ *         GET /health  → plain-text status probe
  *
  *       Wi-Fi: APSTA concurrent mode.
  *         STA connects to configured network first; AP "seeedmote-gw-XXYY"
@@ -118,6 +119,19 @@ static void cred_load(void)
 #define RAW_RING_SIZE 100
 #define RAW_DATA_MAX  64
 
+struct bthome_motion_event {
+    bool has_motion;
+    bool motion;
+    bool has_moving;
+    bool moving;
+    bool has_vibration;
+    bool vibration;
+    bool has_pid;
+    uint8_t pid;
+    bool has_ctr;
+    uint32_t ctr;
+};
+
 typedef struct {
     uint64_t seq;
     int64_t  ts_ms;
@@ -125,6 +139,7 @@ typedef struct {
     int8_t   rssi;
     uint8_t  len;
     bool     matched;
+    struct bthome_motion_event parsed;
     uint8_t  data[RAW_DATA_MAX];
 } raw_adv_t;
 
@@ -135,7 +150,8 @@ static uint64_t          s_total_raw = 0;
 static SemaphoreHandle_t s_raw_mutex;
 
 static void raw_ring_push(const uint8_t *addr_le, int8_t rssi,
-                          const uint8_t *data, size_t len, bool matched)
+                          const uint8_t *data, size_t len,
+                          const struct bthome_motion_event *parsed)
 {
     raw_adv_t adv = {};
     adv.ts_ms = esp_timer_get_time() / 1000;
@@ -146,7 +162,8 @@ static void raw_ring_push(const uint8_t *addr_le, int8_t rssi,
     adv.addr[4] = addr_le[1];
     adv.addr[5] = addr_le[0];
     adv.rssi = rssi;
-    adv.matched = matched;
+    adv.matched = parsed != NULL;
+    if (parsed) adv.parsed = *parsed;
     adv.len = (uint8_t)((len > RAW_DATA_MAX) ? RAW_DATA_MAX : len);
     memcpy(adv.data, data, adv.len);
 
@@ -163,19 +180,8 @@ static uint8_t        gw_mac[6];
 static char           s_ap_ssid[24]  = {};
 static char           s_sta_ip[20]   = "0.0.0.0";
 static httpd_handle_t s_httpd        = NULL;
-
-struct bthome_motion_event {
-    bool has_motion;
-    bool motion;
-    bool has_moving;
-    bool moving;
-    bool has_vibration;
-    bool vibration;
-    bool has_pid;
-    uint8_t pid;
-    bool has_ctr;
-    uint32_t ctr;
-};
+static raw_adv_t      s_http_scratch[RAW_RING_SIZE];
+static SemaphoreHandle_t s_http_scratch_mutex;
 
 static int append_hex(char *buf, size_t len, const uint8_t *data, size_t data_len)
 {
@@ -195,11 +201,18 @@ static int format_raw_json(char *buf, size_t len, const raw_adv_t *adv)
         "{\"seq\":%" PRIu64
         ",\"ts\":%" PRId64
         ",\"addr\":\"%02x:%02x:%02x:%02x:%02x:%02x\""
-        ",\"rssi\":%d,\"len\":%u,\"matched\":%s,\"data\":\"",
+        ",\"rssi\":%d,\"len\":%u,\"matched\":%s"
+        ",\"moving\":%s,\"vibration\":%s,\"pid\":%u,\"ctr\":%" PRIu32
+        ",\"data\":\"",
         adv->seq, adv->ts_ms,
         adv->addr[0], adv->addr[1], adv->addr[2],
         adv->addr[3], adv->addr[4], adv->addr[5],
-        adv->rssi, (unsigned)adv->len, adv->matched ? "true" : "false");
+        adv->rssi, (unsigned)adv->len, adv->matched ? "true" : "false",
+        ((adv->parsed.has_moving && adv->parsed.moving) ||
+         (adv->parsed.has_motion && adv->parsed.motion)) ? "true" : "false",
+        (adv->parsed.has_vibration && adv->parsed.vibration) ? "true" : "false",
+        adv->parsed.has_pid ? adv->parsed.pid : 255u,
+        adv->parsed.has_ctr ? adv->parsed.ctr : 0u);
     if (n < 0 || (size_t)n >= len) return n;
     n += append_hex(buf + n, len - (size_t)n, adv->data, adv->len);
     if ((size_t)n + 3 <= len) {
@@ -364,7 +377,8 @@ static bool parse_bthome_objects(const uint8_t *p, size_t len,
 }
 
 static bool parse_bthome_adv(const uint8_t *data, size_t len,
-                             const uint8_t *mote_addr_le, int8_t rssi)
+                             const uint8_t *mote_addr_le, int8_t rssi,
+                             struct bthome_motion_event *out_event)
 {
     const uint8_t *p = data;
     const uint8_t *end = data + len;
@@ -392,6 +406,7 @@ static bool parse_bthome_adv(const uint8_t *data, size_t len,
                 struct bthome_motion_event event = {0};
                 if (parse_bthome_objects(svc + 3, svc_len - 3, &event)) {
                     emit_event(mote_addr_le, rssi, &event);
+                    if (out_event) *out_event = event;
                     matched = true;
                 }
             }
@@ -415,10 +430,13 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
                      event->disc.rssi, event->disc.length_data);
             last_any_log_us = now_us;
         }
+        struct bthome_motion_event parsed = {0};
         bool matched = parse_bthome_adv(event->disc.data, event->disc.length_data,
-                                        event->disc.addr.val, event->disc.rssi);
+                                        event->disc.addr.val, event->disc.rssi,
+                                        &parsed);
         raw_ring_push(event->disc.addr.val, event->disc.rssi,
-                      event->disc.data, event->disc.length_data, matched);
+                      event->disc.data, event->disc.length_data,
+                      matched ? &parsed : NULL);
     }
     return 0;
 }
@@ -426,8 +444,8 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
 static void start_scan(void)
 {
     struct ble_gap_disc_params params = {
-        .itvl              = 0x0020, /* 20 ms (units of 0.625 ms) */
-        .window            = 0x0020, /* 20 ms — 100% duty for first version */
+        .itvl              = 0x00A0, /* 100 ms (units of 0.625 ms) */
+        .window            = 0x0030, /* 30 ms; leaves airtime for Wi-Fi/AP */
         .filter_policy     = BLE_HCI_SCAN_FILT_NO_WL,
         .limited           = 0,
         .passive           = 1,      /* no SCAN_REQ; we only want adv data */
@@ -504,35 +522,7 @@ static esp_err_t sendf(httpd_req_t *req, const char *fmt, ...)
     return httpd_resp_send_chunk(req, buf, n);
 }
 
-static esp_err_t send_html_escaped(httpd_req_t *req, const char *s)
-{
-    while (*s) {
-        const char *esc = NULL;
-        switch (*s) {
-        case '&': esc = "&amp;"; break;
-        case '<': esc = "&lt;"; break;
-        case '>': esc = "&gt;"; break;
-        case '"': esc = "&quot;"; break;
-        case '\'': esc = "&#39;"; break;
-        default: break;
-        }
-        esp_err_t err = esc ? send_literal(req, esc) : httpd_resp_send_chunk(req, s, 1);
-        if (err != ESP_OK) return err;
-        s++;
-    }
-    return ESP_OK;
-}
-
-static bool is_stream_request(httpd_req_t *req)
-{
-    char query[32];
-    char stream[4];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) return false;
-    if (httpd_query_key_value(query, "stream", stream, sizeof(stream)) != ESP_OK) return false;
-    return strcmp(stream, "1") == 0;
-}
-
-static uint64_t stream_last_seq(httpd_req_t *req)
+static uint64_t raw_last_seq(httpd_req_t *req)
 {
     char query[64];
     char last[24];
@@ -547,169 +537,191 @@ static uint64_t stream_last_seq(httpd_req_t *req)
     return total;
 }
 
-static esp_err_t h_stream(httpd_req_t *req)
+static esp_err_t h_raw_json(httpd_req_t *req)
 {
-    uint64_t last_seq = stream_last_seq(req);
-    raw_adv_t *pending = malloc(RAW_RING_SIZE * sizeof(raw_adv_t));
-    if (!pending) {
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
+    uint64_t last_seq = raw_last_seq(req);
+    int pending_count = 0;
+    uint64_t newest_seq = last_seq;
+
+    xSemaphoreTake(s_http_scratch_mutex, portMAX_DELAY);
+    xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
+    int snap_count = s_raw_count;
+    int snap_start = (s_raw_count < RAW_RING_SIZE) ? 0 : s_raw_head;
+    uint64_t total_raw = s_total_raw;
+    for (int i = 0; i < snap_count; i++) {
+        int idx = (snap_start + i) % RAW_RING_SIZE;
+        if (s_raw_ring[idx].seq > last_seq && pending_count < RAW_RING_SIZE) {
+            s_http_scratch[pending_count++] = s_raw_ring[idx];
+            newest_seq = s_raw_ring[idx].seq;
+        }
+    }
+    if (pending_count == 0 && total_raw > last_seq + RAW_RING_SIZE) {
+        newest_seq = total_raw;
+    }
+    xSemaphoreGive(s_raw_mutex);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "close");
+
+    if (sendf(req, "{\"total\":%" PRIu64 ",\"last\":%" PRIu64 ",\"events\":[",
+              total_raw, newest_seq) != ESP_OK) goto fail;
+
+    for (int i = 0; i < pending_count; i++) {
+        char json[320];
+        int json_len = format_raw_json(json, sizeof(json), &s_http_scratch[i]);
+        if (json_len < 0) continue;
+        if (i > 0 && send_literal(req, ",") != ESP_OK) goto fail;
+        if (httpd_resp_send_chunk(req, json, json_len) != ESP_OK) goto fail;
     }
 
-    httpd_resp_set_type(req, "text/event-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    if (send_literal(req, "]}") != ESP_OK) goto fail;
+    xSemaphoreGive(s_http_scratch_mutex);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
 
-    if (httpd_resp_send_chunk(req, ": connected\n\n", HTTPD_RESP_USE_STRLEN) != ESP_OK) {
-        free(pending);
-        return ESP_FAIL;
-    }
+fail:
+    xSemaphoreGive(s_http_scratch_mutex);
+    return ESP_FAIL;
+}
 
-    while (true) {
-        int pending_count = 0;
-        uint64_t newest_seq = last_seq;
+static esp_err_t h_health(httpd_req_t *req)
+{
+    uint64_t total_raw;
 
-        xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
-        int snap_count = s_raw_count;
-        int snap_start = (s_raw_count < RAW_RING_SIZE) ? 0 : s_raw_head;
-        for (int i = 0; i < snap_count; i++) {
-            int idx = (snap_start + i) % RAW_RING_SIZE;
-            if (s_raw_ring[idx].seq > last_seq && pending_count < RAW_RING_SIZE) {
-                pending[pending_count++] = s_raw_ring[idx];
-                newest_seq = s_raw_ring[idx].seq;
-            }
-        }
-        if (pending_count == 0 && s_total_raw > last_seq + RAW_RING_SIZE) {
-            newest_seq = s_total_raw;
-        }
-        xSemaphoreGive(s_raw_mutex);
+    xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
+    total_raw = s_total_raw;
+    xSemaphoreGive(s_raw_mutex);
 
-        for (int i = 0; i < pending_count; i++) {
-            char json[320];
-            char chunk[352];
-            int json_len = format_raw_json(json, sizeof(json), &pending[i]);
-            if (json_len < 0) continue;
-            int chunk_len = snprintf(chunk, sizeof(chunk), "data: %.*s\n\n", json_len, json);
-            if (httpd_resp_send_chunk(req, chunk, chunk_len) != ESP_OK) {
-                free(pending);
-                return ESP_FAIL;
-            }
-        }
-        last_seq = newest_seq;
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "close");
 
-        if (pending_count == 0) {
-            if (httpd_resp_send_chunk(req, ": keepalive\n\n", HTTPD_RESP_USE_STRLEN) != ESP_OK) {
-                free(pending);
-                return ESP_FAIL;
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    esp_err_t err = sendf(req,
+        "ok\n"
+        "sta_ip=%s\n"
+        "ap_ip=192.168.4.1\n"
+        "ap_ssid=%s\n"
+        "wifi_ssid=%s\n"
+        "uptime_ms=%" PRId64 "\n"
+        "raw_total=%" PRIu64 "\n",
+        s_sta_ip,
+        s_ap_ssid,
+        s_wifi_ssid,
+        (int64_t)(esp_timer_get_time() / 1000),
+        total_raw);
+    if (err != ESP_OK) return err;
+
+    return httpd_resp_send_chunk(req, NULL, 0);
 }
 
 static esp_err_t h_index(httpd_req_t *req)
 {
-    if (is_stream_request(req)) return h_stream(req);
-
-    raw_adv_t *snap = malloc(RAW_RING_SIZE * sizeof(raw_adv_t));
-    if (!snap) {
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
-
     int snap_count;
     int snap_head;
     uint64_t total_raw;
+
+    xSemaphoreTake(s_http_scratch_mutex, portMAX_DELAY);
     xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
     snap_count = s_raw_count;
     snap_head = s_raw_head;
     total_raw = s_total_raw;
-    memcpy(snap, s_raw_ring, RAW_RING_SIZE * sizeof(raw_adv_t));
+    memcpy(s_http_scratch, s_raw_ring, RAW_RING_SIZE * sizeof(raw_adv_t));
     xSemaphoreGive(s_raw_mutex);
 
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "close");
 
     if (send_literal(req,
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>SeeedMote Gateway</title>"
         "<style>"
-        "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:20px;background:#f7f8fa;color:#1f2933}"
-        "header{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px}"
-        "h2{margin:0;font-size:22px}.muted{color:#637083}.pill{background:#e8edf3;border-radius:999px;padding:4px 10px;font-size:13px}"
-        ".status{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 16px}"
-        ".stat{background:white;border:1px solid #d8dee8;padding:8px 10px}.label{font-size:12px;color:#637083}.value{font-size:14px;font-weight:600;overflow-wrap:anywhere}"
-        "table{width:100%;border-collapse:collapse;background:white;border:1px solid #d8dee8;table-layout:fixed}"
-        "th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #edf0f4;font-size:13px;vertical-align:top}"
+        "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:16px;background:#f7f8fa;color:#17202a}"
+        "header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}"
+        "h1{font-size:20px;margin:0}.muted{color:#667085}.pill,button{border:1px solid #cfd7e3;background:#fff;border-radius:6px;padding:5px 9px;font-size:13px}"
+        "button{cursor:pointer}.meta{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 12px;font-size:13px}"
+        "table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d8dee8;table-layout:fixed}"
+        "th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:13px;vertical-align:top}"
         "th{background:#eef2f6;color:#334155}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}"
-        ".ok{color:#047857;font-weight:600}.no{color:#64748b}"
-        "</style></head><body><header><h2>Raw BLE Debug</h2>"
-        "<span id='state' class='pill'>connecting</span>") != ESP_OK) goto fail;
+        ".ok{color:#047857;font-weight:600}.no{color:#64748b}.raw{display:none}body.raw-mode .parsed{display:none}body.raw-mode .raw{display:table-cell}"
+        "</style></head><body><header><h1>SeeedMote Gateway</h1>"
+        "<button id='mode' type='button'>Raw</button><span id='state' class='pill'>loading</span>") != ESP_OK) goto fail;
 
     if (sendf(req, "<span id='count' class='muted'>%" PRIu64 " total / %d shown</span></header>",
               total_raw, snap_count) != ESP_OK) goto fail;
 
     if (sendf(req,
-        "<section class='status'>"
-        "<div class='stat'><div class='label'>GW ID</div><div class='value'>%02x%02x%02x%02x%02x%02x</div></div>"
-        "<div class='stat'><div class='label'>STA IP</div><div class='value'>%s</div></div>"
-        "<div class='stat'><div class='label'>AP</div><div class='value'>192.168.4.1 / %s</div></div>"
-        "<div class='stat'><div class='label'>Uptime</div><div class='value'>%" PRId64 " ms</div></div>"
-        "<div class='stat'><div class='label'>Wi-Fi</div><div class='value'>",
+        "<div class='meta'>"
+        "<span>GW <code>%02x%02x%02x%02x%02x%02x</code></span>"
+        "<span>STA <code>%s</code></span>"
+        "<span>AP <code>192.168.4.1</code> <code>%s</code></span>"
+        "<span>Up %" PRId64 " ms</span>"
+        "</div>"
+        "<table><thead><tr>"
+        "<th style='width:64px'>Seq</th><th style='width:86px'>Time</th>"
+        "<th style='width:150px'>Address</th><th style='width:58px'>RSSI</th>"
+        "<th class='parsed' style='width:76px'>Moving</th>"
+        "<th class='parsed' style='width:86px'>Vibration</th>"
+        "<th class='parsed' style='width:58px'>PID</th>"
+        "<th class='parsed' style='width:80px'>Count</th>"
+        "<th class='raw' style='width:58px'>Len</th><th class='raw'>Data hex</th>"
+        "</tr></thead><tbody id='rows'>",
         gw_mac[0], gw_mac[1], gw_mac[2],
         gw_mac[3], gw_mac[4], gw_mac[5],
         s_sta_ip, s_ap_ssid,
         (int64_t)(esp_timer_get_time() / 1000)) != ESP_OK) goto fail;
 
-    if (send_html_escaped(req, s_wifi_ssid) != ESP_OK) goto fail;
-
-    if (send_literal(req,
-        "</div></div></section>"
-        "<table><thead><tr><th style='width:64px'>Seq</th><th style='width:86px'>Time ms</th>"
-        "<th style='width:150px'>Address</th><th style='width:58px'>RSSI</th>"
-        "<th style='width:58px'>Len</th><th style='width:82px'>BTHome</th><th>Data hex</th>"
-        "</tr></thead><tbody id='rows'>") != ESP_OK) goto fail;
-
     if (snap_count == 0) {
-        if (send_literal(req, "<tr id='empty'><td colspan='7' class='muted'>No advertisements yet</td></tr>") != ESP_OK) goto fail;
+        if (send_literal(req, "<tr id='empty'><td colspan='8' class='muted'>No advertisements yet</td></tr>") != ESP_OK) goto fail;
     }
 
     for (int i = 0; i < snap_count; i++) {
         int idx = (snap_head - 1 - i + RAW_RING_SIZE) % RAW_RING_SIZE;
+        const raw_adv_t *adv = &s_http_scratch[idx];
         char hexbuf[RAW_DATA_MAX * 2 + 1];
-        append_hex(hexbuf, sizeof(hexbuf), snap[idx].data, snap[idx].len);
+        bool moving = (adv->parsed.has_moving && adv->parsed.moving) ||
+                      (adv->parsed.has_motion && adv->parsed.motion);
+        bool vibration = adv->parsed.has_vibration && adv->parsed.vibration;
+        append_hex(hexbuf, sizeof(hexbuf), adv->data, adv->len);
         if (sendf(req,
             "<tr><td>%" PRIu64 "</td><td>%" PRId64 "</td>"
             "<td><code>%02x:%02x:%02x:%02x:%02x:%02x</code></td>"
-            "<td>%d</td><td>%u</td><td class='%s'>%s</td><td><code>%s</code></td></tr>",
-            snap[idx].seq, snap[idx].ts_ms,
-            snap[idx].addr[0], snap[idx].addr[1], snap[idx].addr[2],
-            snap[idx].addr[3], snap[idx].addr[4], snap[idx].addr[5],
-            snap[idx].rssi, (unsigned)snap[idx].len,
-            snap[idx].matched ? "ok" : "no",
-            snap[idx].matched ? "yes" : "no",
+            "<td>%d</td><td class='parsed %s'>%s</td><td class='parsed %s'>%s</td>"
+            "<td class='parsed'>%u</td><td class='parsed'>%" PRIu32 "</td>"
+            "<td class='raw'>%u</td><td class='raw'><code>%s</code></td></tr>",
+            adv->seq, adv->ts_ms,
+            adv->addr[0], adv->addr[1], adv->addr[2],
+            adv->addr[3], adv->addr[4], adv->addr[5],
+            adv->rssi,
+            moving ? "ok" : "no", adv->matched ? (moving ? "yes" : "no") : "-",
+            vibration ? "ok" : "no", adv->matched ? (vibration ? "yes" : "no") : "-",
+            adv->parsed.has_pid ? adv->parsed.pid : 255u,
+            adv->parsed.has_ctr ? adv->parsed.ctr : 0u,
+            (unsigned)adv->len,
             hexbuf) != ESP_OK) goto fail;
     }
 
     if (sendf(req,
         "</tbody></table><script>"
-        "const rows=document.getElementById('rows'),count=document.getElementById('count'),state=document.getElementById('state');"
+        "const rows=document.getElementById('rows'),count=document.getElementById('count'),state=document.getElementById('state'),mode=document.getElementById('mode');"
         "let lastSeq=%" PRIu64 ";"
-        "function row(e){return `<td>${e.seq}</td><td>${e.ts}</td><td><code>${e.addr}</code></td><td>${e.rssi}</td><td>${e.len}</td><td class='${e.matched?'ok':'no'}'>${e.matched?'yes':'no'}</td><td><code>${e.data}</code></td>`}"
+        "mode.onclick=()=>{document.body.classList.toggle('raw-mode');mode.textContent=document.body.classList.contains('raw-mode')?'Parsed':'Raw'};"
+        "function yn(e,k){return e.matched?(e[k]?'yes':'no'):'-'}"
+        "function row(e){return `<td>${e.seq}</td><td>${e.ts}</td><td><code>${e.addr}</code></td><td>${e.rssi}</td><td class='parsed ${e.moving?'ok':'no'}'>${yn(e,'moving')}</td><td class='parsed ${e.vibration?'ok':'no'}'>${yn(e,'vibration')}</td><td class='parsed'>${e.pid}</td><td class='parsed'>${e.ctr}</td><td class='raw'>${e.len}</td><td class='raw'><code>${e.data}</code></td>`}"
         "function add(e){if(e.seq<=lastSeq)return;lastSeq=e.seq;const empty=document.getElementById('empty');if(empty)empty.remove();const tr=document.createElement('tr');tr.innerHTML=row(e);rows.prepend(tr);while(rows.children.length>100)rows.lastElementChild.remove();count.textContent=`${lastSeq} total / ${rows.children.length} shown`;}"
-        "const es=new EventSource('/?stream=1&last='+lastSeq);"
-        "es.onopen=()=>state.textContent='live';"
-        "es.onerror=()=>state.textContent='reconnecting';"
-        "es.onmessage=m=>add(JSON.parse(m.data));"
+        "let busy=false;"
+        "async function poll(){if(busy)return;busy=true;const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);try{const r=await fetch('/raw?last='+lastSeq,{cache:'no-store',signal:c.signal});if(!r.ok)throw new Error(r.status);const p=await r.json();p.events.forEach(add);if(p.events.length===0&&p.last>lastSeq)lastSeq=p.last;count.textContent=`${p.total} total / ${rows.children.length} shown`;state.textContent='live';}catch(e){state.textContent='retrying';}finally{clearTimeout(t);busy=false;}}"
+        "poll();setInterval(poll,500);"
         "</script></body></html>",
         total_raw) != ESP_OK) goto fail;
-    free(snap);
+    xSemaphoreGive(s_http_scratch_mutex);
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 
 fail:
-    free(snap);
+    xSemaphoreGive(s_http_scratch_mutex);
     return ESP_FAIL;
 }
 
@@ -720,6 +732,9 @@ static void start_httpd(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port    = 80;
     cfg.lru_purge_enable = true;
+    cfg.recv_wait_timeout = 5;
+    cfg.send_wait_timeout = 5;
+    cfg.stack_size = 8192;
     if (httpd_start(&s_httpd, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed");
         return;
@@ -731,6 +746,20 @@ static void start_httpd(void)
         .handler = h_index,
     };
     httpd_register_uri_handler(s_httpd, &root);
+
+    static const httpd_uri_t raw = {
+        .uri = "/raw",
+        .method = HTTP_GET,
+        .handler = h_raw_json,
+    };
+    httpd_register_uri_handler(s_httpd, &raw);
+
+    static const httpd_uri_t health = {
+        .uri = "/health",
+        .method = HTTP_GET,
+        .handler = h_health,
+    };
+    httpd_register_uri_handler(s_httpd, &health);
 
     ESP_LOGI(TAG, "http server started (port 80)");
 }
@@ -761,8 +790,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
         s_wifi_retries = 0;
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)data;
         snprintf(s_sta_ip, sizeof(s_sta_ip), IPSTR, IP2STR(&ev->ip_info.ip));
-        ESP_LOGI(TAG, "STA connected: ip=%s  live: http://%s/",
-                 s_sta_ip, s_sta_ip);
+        start_httpd();
+        ESP_LOGI(TAG, "STA connected: ip=%s  health: http://%s/health  live: http://%s/",
+                 s_sta_ip, s_sta_ip, s_sta_ip);
         schedule_ble_start("STA connected");
     }
 }
@@ -803,6 +833,8 @@ static void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    start_httpd();
 }
 
 static void blink_task(void *arg)
@@ -840,6 +872,8 @@ void app_main(void)
 
     s_raw_mutex = xSemaphoreCreateMutex();
     configASSERT(s_raw_mutex);
+    s_http_scratch_mutex = xSemaphoreCreateMutex();
+    configASSERT(s_http_scratch_mutex);
 
     cred_load();  /* must run before wifi_init() which reads s_wifi_ssid/pass */
 
