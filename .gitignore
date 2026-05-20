@@ -41,8 +41,10 @@ zephyr-sources/
 *.swp
 *~
 
-# Local AI tooling (per-machine permissions, etc.)
-.claude/
+# Local AI tooling (per-machine permissions, etc.) — ignore contents,
+# but check in .claude/skills/ so all agents share the same entry points.
+.claude/*
+!.claude/skills/
 
 # Python / tooling
 __pycache__/

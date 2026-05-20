@@ -4,7 +4,32 @@
 **Function**: `basic` —— 基础 MQTT 出口(未来扩展时会有 `webhook`、`opcua`、`grpc` 等其他 function)
 **Chip**: `esp32s3` —— **决定走 PlatformIO + ESP-IDF 工具链**
 **Board**: Seeed XIAO ESP32-S3(PIO board id: `seeed_xiao_esp32s3`)
-**Status**: BLE observer + UART JSON 出口 —— NimBLE passive scan,解码 BTHome v2 Service Data(UUID=`0xFCD2`)中 [`contracts/airframe.yaml`](../../contracts/airframe.yaml) 声明的 motion profile,每帧一行 JSON 到 UART。无 Wi-Fi、无 MQTT。
+**Status**: BLE observer + MQTT 出口 —— NimBLE passive scan,解码 BTHome v2 Service Data(UUID=`0xFCD2`)中 [`contracts/airframe.yaml`](../../contracts/airframe.yaml) 声明的 motion profile,每帧一行 JSON 到 UART,同时发布 MQTT parsed event/raw frame/status,并通过 MQTT 接收控制命令。
+
+## MQTT
+
+默认 broker 在 `platformio.ini` 的 `SEEEDMOTE_MQTT_BROKER_URI`:
+
+```ini
+-DSEEEDMOTE_MQTT_BROKER_URI=\"mqtt://192.168.1.100:1883\"
+```
+
+Topic:
+
+| Topic | 方向 | 内容 |
+|---|---|---|
+| `mote/<gw_id>/event` | publish | parsed motion JSON |
+| `mote/<gw_id>/raw` | publish | raw BLE advertisement hex JSON |
+| `mote/<gw_id>/status` | publish retained | online/status/counters |
+| `mote/<gw_id>/cmd` | subscribe | 单网关控制 |
+| `mote/all/cmd` | subscribe | 广播控制 |
+
+当前控制命令支持 plain text 或 JSON payload:
+
+```json
+{"cmd":"status"}
+{"cmd":"start_ble"}
+```
 
 ## ⚠️ 这个 project 用 PIO(因为 chip 是 esp32s3)
 

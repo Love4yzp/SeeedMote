@@ -17,6 +17,10 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
+# Use the larger single-app partition (~1.5 MB) since WiFi + NimBLE + lwIP
+# baseline alone is ~900 KB and the default 1 MB partition would sit at 90%.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
 # BLE: NimBLE host, OBSERVER role only (scan + decode BTHome service data).
 # First version is uplink-only; gateway does not connect to motes.
 CONFIG_BT_ENABLED=y
@@ -30,5 +34,9 @@ CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 # OBSERVER defaults to y; left implicit.
 
-# WiFi stays off — first-version gateway only emits to UART.
-CONFIG_ESP_WIFI_ENABLED=n
+# WiFi: STA mode — connects to user network; MQTT carries data and control.
+CONFIG_ESP_WIFI_ENABLED=y
+
+# BLE + WiFi software coexistence (shared radio on ESP32-S3).
+# Without this, WiFi TX bursts silently drop BLE scan windows.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
