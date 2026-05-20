@@ -1,6 +1,7 @@
 #include "ble_observer.h"
 #include "adv_ring.h"
 #include "bthome.h"
+#include "mqtt_gateway.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -77,6 +78,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     raw_ring_push(event->disc.addr.val, event->disc.rssi,
                   event->disc.data, event->disc.length_data,
                   &parsed);
+    mqtt_gateway_publish_motion_event(event->disc.addr.val, event->disc.rssi,
+                                      event->disc.data, event->disc.length_data,
+                                      &parsed);
     return 0;
 }
 

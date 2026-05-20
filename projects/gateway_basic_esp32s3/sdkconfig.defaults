@@ -34,7 +34,7 @@ CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 # OBSERVER defaults to y; left implicit.
 
-# WiFi: APSTA mode — STA connects to user network, AP always-on config portal.
+# WiFi: STA mode — connects to user network; MQTT carries data and control.
 CONFIG_ESP_WIFI_ENABLED=y
 
 # BLE + WiFi software coexistence (shared radio on ESP32-S3).

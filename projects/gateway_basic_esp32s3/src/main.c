@@ -2,19 +2,20 @@
  * SeeedMote v2 — gateway_basic_esp32s3.
  *
  * Role: BLE gateway. Scans for SeeedMote BLE advertisements, decodes BTHome
- *       v2 Service Data, emits JSON to UART, and serves a live debug page over
- *       HTTP on the local Wi-Fi network.
+ *       v2 Service Data, emits JSON to UART, and publishes event/raw frames to
+ *       MQTT on the configured Wi-Fi network.
  *
- *       HTTP endpoint:
- *         GET /          → browser UI, Parsed view (default)
- *         GET /?view=raw → browser UI, Raw hex view
- *         GET /health    → plain-text status probe
+ *       MQTT topics:
+ *         mote/<gw_id>/event   parsed BTHome motion JSON
+ *         mote/<gw_id>/raw     raw advertisement JSON with hex data
+ *         mote/<gw_id>/status  retained gateway status
+ *         mote/<gw_id>/cmd     per-gateway control
+ *         mote/all/cmd         broadcast control
  *
- *       Wi-Fi: APSTA concurrent mode.
- *         STA connects to configured network first; AP "seeedmote-gw-XXYY"
- *         is always available at http://192.168.4.1/ for local debug output.
- *         Credentials live in NVS (namespace "gw_cfg"); compiled-in defaults
- *         are used on first boot or when NVS has no entry.
+ *       Wi-Fi:
+ *         STA connects to configured network. Credentials live in NVS
+ *         (namespace "gw_cfg"); compiled-in defaults are used on first boot
+ *         or when NVS has no entry.
  *
  * Board: Seeed XIAO ESP32-S3 (board id: seeed_xiao_esp32s3).
  *
@@ -37,14 +38,14 @@
  *   bthome.h/c       — BTHome v2 wire-format parser (pure, no side effects)
  *   adv_ring.h/c     — thread-safe ring buffer for raw advertisements
  *   ble_observer.h/c — NimBLE scanner, GAP callback, JSON-to-UART emitter
- *   http_server.h/c  — HTTP handlers and embedded debug UI
- *   wifi_mgmt.h/c    — Wi-Fi APSTA init and NVS credential management
+ *   mqtt_gateway.h/c — MQTT event/raw publisher and command subscriber
+ *   wifi_mgmt.h/c    — Wi-Fi STA init and NVS credential management
  *   main.c           — startup orchestration and LED blink task
  */
 
 #include "adv_ring.h"
 #include "ble_observer.h"
-#include "http_server.h"
+#include "mqtt_gateway.h"
 #include "wifi_mgmt.h"
 
 #include "driver/gpio.h"
@@ -93,13 +94,13 @@ void app_main(void)
     }
 
     adv_ring_init();
-    http_server_init();
 
     ESP_ERROR_CHECK(esp_read_mac(gw_mac, ESP_MAC_BT));
     ESP_LOGI(TAG, "gw_id=%02x%02x%02x%02x%02x%02x",
              gw_mac[0], gw_mac[1], gw_mac[2],
              gw_mac[3], gw_mac[4], gw_mac[5]);
 
+    mqtt_gateway_init();
     wifi_init();
 
     xTaskCreate(blink_task, "blink", 4096, NULL, 5, NULL);

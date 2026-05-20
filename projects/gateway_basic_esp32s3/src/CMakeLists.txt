@@ -8,9 +8,9 @@ idf_component_register(
                 "bthome.c"
                 "adv_ring.c"
                 "ble_observer.c"
-                "http_server.c"
+                "mqtt_gateway.c"
                 "wifi_mgmt.c"
     INCLUDE_DIRS "."
     REQUIRES    driver esp_common esp_system freertos log bt nvs_flash
-                esp_wifi esp_event esp_netif esp_http_server
+                esp_wifi esp_event esp_netif mqtt
 )
