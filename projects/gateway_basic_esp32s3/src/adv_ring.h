@@ -25,10 +25,12 @@ typedef struct {
 extern raw_adv_t         s_raw_ring[RAW_RING_SIZE];
 extern int               s_raw_head;
 extern int               s_raw_count;
-extern uint64_t          s_total_raw;
+extern uint64_t          s_total_raw;      /* mote-only (BTHome matched) */
+extern uint64_t          s_total_scanned;  /* all BLE advertisements seen */
 extern SemaphoreHandle_t s_raw_mutex;
 
 void adv_ring_init(void);
+void adv_ring_count_scan(void); /* bump s_total_scanned for every BLE adv */
 
 void raw_ring_push(const uint8_t *addr_le, int8_t rssi,
                    const uint8_t *data, size_t len,

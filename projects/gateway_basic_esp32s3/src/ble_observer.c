@@ -56,7 +56,9 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     (void)arg;
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
 
-    /* Rate-limited "we hear something" log to verify scan works. */
+    adv_ring_count_scan();
+
+    /* Rate-limited log so we can verify scanning is alive without logspam. */
     static int64_t last_any_log_us = 0;
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_any_log_us > 1000000) {
@@ -68,14 +70,13 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     }
 
     struct bthome_motion_event parsed = {0};
-    bool matched = parse_bthome_adv(event->disc.data, event->disc.length_data,
-                                    &parsed);
-    if (matched)
-        emit_event(event->disc.addr.val, event->disc.rssi, &parsed);
+    if (!parse_bthome_adv(event->disc.data, event->disc.length_data, &parsed))
+        return 0;
 
+    emit_event(event->disc.addr.val, event->disc.rssi, &parsed);
     raw_ring_push(event->disc.addr.val, event->disc.rssi,
                   event->disc.data, event->disc.length_data,
-                  matched ? &parsed : NULL);
+                  &parsed);
     return 0;
 }
 

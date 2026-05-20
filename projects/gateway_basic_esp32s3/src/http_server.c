@@ -8,23 +8,20 @@
 #include "esp_timer.h"
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "http";
 
-static httpd_handle_t    s_httpd              = NULL;
-static raw_adv_t         s_http_scratch[RAW_RING_SIZE];
-static SemaphoreHandle_t s_http_scratch_mutex;
+static httpd_handle_t s_httpd = NULL;
+static raw_adv_t      s_index_scratch[RAW_RING_SIZE];
 
 void http_server_init(void)
 {
-    s_http_scratch_mutex = xSemaphoreCreateMutex();
-    configASSERT(s_http_scratch_mutex);
 }
 
 static esp_err_t send_literal(httpd_req_t *req, const char *text)
@@ -34,109 +31,64 @@ static esp_err_t send_literal(httpd_req_t *req, const char *text)
 
 static esp_err_t sendf(httpd_req_t *req, const char *fmt, ...)
 {
-    char buf[512];
+    char buf[1024];
     va_list ap;
     va_start(ap, fmt);
     int n = vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (n < 0) return ESP_FAIL;
-    if ((size_t)n >= sizeof(buf)) n = (int)(sizeof(buf) - 1);
+    if ((size_t)n >= sizeof(buf)) {
+        ESP_LOGW(TAG, "sendf truncated: needed %d, have %u", n, (unsigned)sizeof(buf));
+        n = (int)(sizeof(buf) - 1);
+    }
     return httpd_resp_send_chunk(req, buf, n);
 }
 
-static int format_raw_json(char *buf, size_t len, const raw_adv_t *adv)
+static bool query_view_is_raw(httpd_req_t *req)
 {
-    int n = snprintf(buf, len,
-        "{\"seq\":%" PRIu64
-        ",\"ts\":%" PRId64
-        ",\"addr\":\"%02x:%02x:%02x:%02x:%02x:%02x\""
-        ",\"rssi\":%d,\"len\":%u,\"matched\":%s"
-        ",\"moving\":%s,\"vibration\":%s,\"pid\":%u,\"ctr\":%" PRIu32
-        ",\"data\":\"",
-        adv->seq, adv->ts_ms,
-        adv->addr[0], adv->addr[1], adv->addr[2],
-        adv->addr[3], adv->addr[4], adv->addr[5],
-        adv->rssi, (unsigned)adv->len, adv->matched ? "true" : "false",
-        ((adv->parsed.has_moving && adv->parsed.moving) ||
-         (adv->parsed.has_motion && adv->parsed.motion)) ? "true" : "false",
-        (adv->parsed.has_vibration && adv->parsed.vibration) ? "true" : "false",
-        adv->parsed.has_pid ? adv->parsed.pid : 255u,
-        adv->parsed.has_ctr ? adv->parsed.ctr : 0u);
-    if (n < 0 || (size_t)n >= len) return n;
-    n += append_hex(buf + n, len - (size_t)n, adv->data, adv->len);
-    if ((size_t)n + 3 <= len) {
-        memcpy(buf + n, "\"}", 3);
-        n += 2;
-    }
+    char query[64];
+    char val[8];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK)
+        return false;
+    if (httpd_query_key_value(query, "view", val, sizeof(val)) != ESP_OK)
+        return false;
+    return strcmp(val, "raw") == 0;
+}
+
+/* Parse `?refresh=N` query: N seconds of meta-refresh, 0 = disabled. Default 2. */
+static int query_refresh_seconds(httpd_req_t *req)
+{
+    char query[64];
+    char val[8];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK)
+        return 2;
+    if (httpd_query_key_value(query, "refresh", val, sizeof(val)) != ESP_OK)
+        return 2;
+    int n = atoi(val);
+    if (n < 0)  return 0;
+    if (n > 60) return 60;
     return n;
 }
 
-static uint64_t raw_last_seq(httpd_req_t *req)
+/* Build `/[?view=raw][&|?refresh=N]` into buf. buf must be >= 32 bytes. */
+static void build_url(char *buf, size_t len, bool raw_view, int refresh)
 {
-    char query[64];
-    char last[24];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
-        httpd_query_key_value(query, "last", last, sizeof(last)) == ESP_OK) {
-        return strtoull(last, NULL, 10);
+    char sep = '?';
+    int  n   = snprintf(buf, len, "/");
+    if (raw_view && n < (int)len) {
+        n += snprintf(buf + n, len - n, "%cview=raw", sep);
+        sep = '&';
     }
-
-    xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
-    uint64_t total = s_total_raw;
-    xSemaphoreGive(s_raw_mutex);
-    return total;
-}
-
-static esp_err_t h_raw_json(httpd_req_t *req)
-{
-    uint64_t last_seq = raw_last_seq(req);
-    int pending_count = 0;
-    uint64_t newest_seq = last_seq;
-
-    xSemaphoreTake(s_http_scratch_mutex, portMAX_DELAY);
-    xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
-    int snap_count = s_raw_count;
-    int snap_start = (s_raw_count < RAW_RING_SIZE) ? 0 : s_raw_head;
-    uint64_t total_raw = s_total_raw;
-    for (int i = 0; i < snap_count; i++) {
-        int idx = (snap_start + i) % RAW_RING_SIZE;
-        if (s_raw_ring[idx].seq > last_seq && pending_count < RAW_RING_SIZE) {
-            s_http_scratch[pending_count++] = s_raw_ring[idx];
-            newest_seq = s_raw_ring[idx].seq;
-        }
+    if (refresh > 0 && n < (int)len) {
+        snprintf(buf + n, len - n, "%crefresh=%d", sep, refresh);
     }
-    if (pending_count == 0 && total_raw > last_seq + RAW_RING_SIZE)
-        newest_seq = total_raw;
-    xSemaphoreGive(s_raw_mutex);
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    httpd_resp_set_hdr(req, "Connection", "close");
-
-    if (sendf(req, "{\"total\":%" PRIu64 ",\"last\":%" PRIu64 ",\"events\":[",
-              total_raw, newest_seq) != ESP_OK) goto fail;
-
-    for (int i = 0; i < pending_count; i++) {
-        char json[320];
-        int json_len = format_raw_json(json, sizeof(json), &s_http_scratch[i]);
-        if (json_len < 0) continue;
-        if (i > 0 && send_literal(req, ",") != ESP_OK) goto fail;
-        if (httpd_resp_send_chunk(req, json, json_len) != ESP_OK) goto fail;
-    }
-
-    if (send_literal(req, "]}") != ESP_OK) goto fail;
-    xSemaphoreGive(s_http_scratch_mutex);
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-
-fail:
-    xSemaphoreGive(s_http_scratch_mutex);
-    return ESP_FAIL;
 }
 
 static esp_err_t h_health(httpd_req_t *req)
 {
     xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
-    uint64_t total_raw = s_total_raw;
+    uint64_t total_raw      = s_total_raw;
+    uint64_t total_scanned  = s_total_scanned;
     xSemaphoreGive(s_raw_mutex);
 
     httpd_resp_set_type(req, "text/plain");
@@ -150,11 +102,13 @@ static esp_err_t h_health(httpd_req_t *req)
         "ap_ssid=%s\n"
         "wifi_ssid=%s\n"
         "uptime_ms=%" PRId64 "\n"
-        "raw_total=%" PRIu64 "\n",
+        "scanned_total=%" PRIu64 "\n"
+        "mote_total=%" PRIu64 "\n",
         s_sta_ip,
         s_ap_ssid,
         s_wifi_ssid,
         (int64_t)(esp_timer_get_time() / 1000),
+        total_scanned,
         total_raw);
     if (err != ESP_OK) return err;
 
@@ -163,12 +117,15 @@ static esp_err_t h_health(httpd_req_t *req)
 
 static esp_err_t h_index(httpd_req_t *req)
 {
-    xSemaphoreTake(s_http_scratch_mutex, portMAX_DELAY);
+    bool raw_view = query_view_is_raw(req);
+    int  refresh  = query_refresh_seconds(req);
+
     xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
-    int snap_count  = s_raw_count;
-    int snap_head   = s_raw_head;
-    uint64_t total_raw = s_total_raw;
-    memcpy(s_http_scratch, s_raw_ring, RAW_RING_SIZE * sizeof(raw_adv_t));
+    int snap_count          = s_raw_count;
+    int snap_head           = s_raw_head;
+    uint64_t total_raw      = s_total_raw;
+    uint64_t total_scanned  = s_total_scanned;
+    memcpy(s_index_scratch, s_raw_ring, RAW_RING_SIZE * sizeof(raw_adv_t));
     xSemaphoreGive(s_raw_mutex);
 
     httpd_resp_set_type(req, "text/html");
@@ -177,22 +134,61 @@ static esp_err_t h_index(httpd_req_t *req)
 
     if (send_literal(req,
         "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>") != ESP_OK) goto fail;
+
+    if (refresh > 0) {
+        if (sendf(req, "<meta http-equiv='refresh' content='%d'>", refresh) != ESP_OK) goto fail;
+    }
+
+    if (send_literal(req,
         "<title>SeeedMote Gateway</title>"
         "<style>"
         "body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:16px;background:#f7f8fa;color:#17202a}"
         "header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}"
-        "h1{font-size:20px;margin:0}.muted{color:#667085}.pill,button{border:1px solid #cfd7e3;background:#fff;border-radius:6px;padding:5px 9px;font-size:13px}"
-        "button{cursor:pointer}.meta{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 12px;font-size:13px}"
+        "h1{font-size:20px;margin:0}.muted{color:#667085}"
+        ".tabs{display:inline-flex;border:1px solid #cfd7e3;border-radius:6px;overflow:hidden}"
+        ".tabs a{padding:5px 10px;font-size:13px;text-decoration:none;color:#334155;background:#fff}"
+        ".tabs a.active{background:#334155;color:#fff}"
+        ".tabs a+a{border-left:1px solid #cfd7e3}"
+        ".meta{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 12px;font-size:13px}"
         "table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #d8dee8;table-layout:fixed}"
         "th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:13px;vertical-align:top}"
         "th{background:#eef2f6;color:#334155}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}"
-        ".ok{color:#047857;font-weight:600}.no{color:#64748b}.raw{display:none}body.raw-mode .parsed{display:none}body.raw-mode .raw{display:table-cell}"
-        "</style></head><body><header><h1>SeeedMote Gateway</h1>"
-        "<button id='mode' type='button'>Raw</button><span id='state' class='pill'>loading</span>") != ESP_OK) goto fail;
+        ".ok{color:#047857;font-weight:600}.no{color:#64748b}"
+        ".raw{display:none}body.raw-mode .parsed{display:none}body.raw-mode .raw{display:table-cell}"
+        "</style></head>") != ESP_OK) goto fail;
 
-    if (sendf(req, "<span id='count' class='muted'>%" PRIu64 " total / %d shown</span></header>",
-              total_raw, snap_count) != ESP_OK) goto fail;
+    /* Build the six nav URLs. View links preserve refresh; refresh links preserve view. */
+    char u_parsed[32], u_raw[32], u_off[32], u_1s[32], u_2s[32], u_5s[32];
+    build_url(u_parsed, sizeof(u_parsed), false,    refresh);
+    build_url(u_raw,    sizeof(u_raw),    true,     refresh);
+    build_url(u_off,    sizeof(u_off),    raw_view, 0);
+    build_url(u_1s,     sizeof(u_1s),     raw_view, 1);
+    build_url(u_2s,     sizeof(u_2s),     raw_view, 2);
+    build_url(u_5s,     sizeof(u_5s),     raw_view, 5);
+
+    if (sendf(req,
+        "<body%s><header><h1>SeeedMote Gateway</h1>"
+        "<nav class='tabs'>"
+        "<a class='%s' href='%s'>Parsed</a>"
+        "<a class='%s' href='%s'>Raw</a>"
+        "</nav>"
+        "<nav class='tabs'>"
+        "<a class='%s' href='%s'>Off</a>"
+        "<a class='%s' href='%s'>1s</a>"
+        "<a class='%s' href='%s'>2s</a>"
+        "<a class='%s' href='%s'>5s</a>"
+        "</nav>"
+        "<span class='muted'>%" PRIu64 " mote / %" PRIu64 " scanned / %d shown</span>"
+        "</header>",
+        raw_view ? " class='raw-mode'" : "",
+        raw_view ? ""       : "active", u_parsed,
+        raw_view ? "active" : "",       u_raw,
+        refresh == 0 ? "active" : "",   u_off,
+        refresh == 1 ? "active" : "",   u_1s,
+        refresh == 2 ? "active" : "",   u_2s,
+        refresh == 5 ? "active" : "",   u_5s,
+        total_raw, total_scanned, snap_count) != ESP_OK) goto fail;
 
     if (sendf(req,
         "<div class='meta'>"
@@ -200,7 +196,13 @@ static esp_err_t h_index(httpd_req_t *req)
         "<span>STA <code>%s</code></span>"
         "<span>AP <code>192.168.4.1</code> <code>%s</code></span>"
         "<span>Up %" PRId64 " ms</span>"
-        "</div>"
+        "</div>",
+        gw_mac[0], gw_mac[1], gw_mac[2],
+        gw_mac[3], gw_mac[4], gw_mac[5],
+        s_sta_ip, s_ap_ssid,
+        (int64_t)(esp_timer_get_time() / 1000)) != ESP_OK) goto fail;
+
+    if (send_literal(req,
         "<table><thead><tr>"
         "<th style='width:64px'>Seq</th><th style='width:86px'>Time</th>"
         "<th style='width:150px'>Address</th><th style='width:58px'>RSSI</th>"
@@ -209,19 +211,15 @@ static esp_err_t h_index(httpd_req_t *req)
         "<th class='parsed' style='width:58px'>PID</th>"
         "<th class='parsed' style='width:80px'>Count</th>"
         "<th class='raw' style='width:58px'>Len</th><th class='raw'>Data hex</th>"
-        "</tr></thead><tbody id='rows'>",
-        gw_mac[0], gw_mac[1], gw_mac[2],
-        gw_mac[3], gw_mac[4], gw_mac[5],
-        s_sta_ip, s_ap_ssid,
-        (int64_t)(esp_timer_get_time() / 1000)) != ESP_OK) goto fail;
+        "</tr></thead><tbody>") != ESP_OK) goto fail;
 
     if (snap_count == 0) {
-        if (send_literal(req, "<tr id='empty'><td colspan='8' class='muted'>No advertisements yet</td></tr>") != ESP_OK) goto fail;
+        if (send_literal(req, "<tr><td colspan='10' class='muted'>No advertisements yet</td></tr>") != ESP_OK) goto fail;
     }
 
     for (int i = 0; i < snap_count; i++) {
         int idx = (snap_head - 1 - i + RAW_RING_SIZE) % RAW_RING_SIZE;
-        const raw_adv_t *adv = &s_http_scratch[idx];
+        const raw_adv_t *adv = &s_index_scratch[idx];
         char hexbuf[RAW_DATA_MAX * 2 + 1];
         bool moving    = (adv->parsed.has_moving && adv->parsed.moving) ||
                          (adv->parsed.has_motion && adv->parsed.motion);
@@ -245,26 +243,28 @@ static esp_err_t h_index(httpd_req_t *req)
             hexbuf) != ESP_OK) goto fail;
     }
 
-    if (sendf(req,
-        "</tbody></table><script>"
-        "const rows=document.getElementById('rows'),count=document.getElementById('count'),state=document.getElementById('state'),mode=document.getElementById('mode');"
-        "let lastSeq=%" PRIu64 ";"
-        "mode.onclick=()=>{document.body.classList.toggle('raw-mode');mode.textContent=document.body.classList.contains('raw-mode')?'Parsed':'Raw'};"
-        "function yn(e,k){return e.matched?(e[k]?'yes':'no'):'-'}"
-        "function row(e){return `<td>${e.seq}</td><td>${e.ts}</td><td><code>${e.addr}</code></td><td>${e.rssi}</td><td class='parsed ${e.moving?'ok':'no'}'>${yn(e,'moving')}</td><td class='parsed ${e.vibration?'ok':'no'}'>${yn(e,'vibration')}</td><td class='parsed'>${e.pid}</td><td class='parsed'>${e.ctr}</td><td class='raw'>${e.len}</td><td class='raw'><code>${e.data}</code></td>`}"
-        "function add(e){if(e.seq<=lastSeq)return;lastSeq=e.seq;const empty=document.getElementById('empty');if(empty)empty.remove();const tr=document.createElement('tr');tr.innerHTML=row(e);rows.prepend(tr);while(rows.children.length>100)rows.lastElementChild.remove();count.textContent=`${lastSeq} total / ${rows.children.length} shown`;}"
-        "let busy=false;"
-        "async function poll(){if(busy)return;busy=true;const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);try{const r=await fetch('/raw?last='+lastSeq,{cache:'no-store',signal:c.signal});if(!r.ok)throw new Error(r.status);const p=await r.json();p.events.forEach(add);if(p.events.length===0&&p.last>lastSeq)lastSeq=p.last;count.textContent=`${p.total} total / ${rows.children.length} shown`;state.textContent='live';}catch(e){state.textContent='retrying';}finally{clearTimeout(t);busy=false;}}"
-        "poll();setInterval(poll,500);"
-        "</script></body></html>",
-        total_raw) != ESP_OK) goto fail;
-    xSemaphoreGive(s_http_scratch_mutex);
+    if (send_literal(req, "</tbody></table></body></html>") != ESP_OK) goto fail;
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 
 fail:
-    xSemaphoreGive(s_http_scratch_mutex);
     return ESP_FAIL;
+}
+
+static esp_err_t register_uri_checked(const httpd_uri_t *uri)
+{
+    esp_err_t err = httpd_register_uri_handler(s_httpd, uri);
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "register %s failed: %s", uri->uri, esp_err_to_name(err));
+    return err;
+}
+
+static void stop_httpd_after_start_error(void)
+{
+    if (s_httpd) {
+        httpd_stop(s_httpd);
+        s_httpd = NULL;
+    }
 }
 
 void start_httpd(void)
@@ -276,26 +276,32 @@ void start_httpd(void)
     cfg.lru_purge_enable = true;
     cfg.recv_wait_timeout = 5;
     cfg.send_wait_timeout = 5;
-    cfg.stack_size       = 8192;
-    if (httpd_start(&s_httpd, &cfg) != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_start failed");
+    cfg.stack_size       = 12288;
+    cfg.max_open_sockets = 7;
+    cfg.task_priority    = tskIDLE_PRIORITY + 7;
+
+    esp_err_t err = httpd_start(&s_httpd, &cfg);
+    if (err != ESP_OK) {
+        s_httpd = NULL;
+        ESP_LOGE(TAG, "httpd_start failed: %s", esp_err_to_name(err));
         return;
     }
 
     static const httpd_uri_t root = {
         .uri = "/", .method = HTTP_GET, .handler = h_index,
     };
-    httpd_register_uri_handler(s_httpd, &root);
-
-    static const httpd_uri_t raw = {
-        .uri = "/raw", .method = HTTP_GET, .handler = h_raw_json,
-    };
-    httpd_register_uri_handler(s_httpd, &raw);
+    if (register_uri_checked(&root) != ESP_OK) {
+        stop_httpd_after_start_error();
+        return;
+    }
 
     static const httpd_uri_t health = {
         .uri = "/health", .method = HTTP_GET, .handler = h_health,
     };
-    httpd_register_uri_handler(s_httpd, &health);
+    if (register_uri_checked(&health) != ESP_OK) {
+        stop_httpd_after_start_error();
+        return;
+    }
 
-    ESP_LOGI(TAG, "http server started (port 80)");
+    ESP_LOGI(TAG, "http server started (port 80, prio %d)", cfg.task_priority);
 }

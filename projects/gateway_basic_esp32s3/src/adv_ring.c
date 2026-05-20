@@ -5,15 +5,23 @@
 #include <string.h>
 
 raw_adv_t         s_raw_ring[RAW_RING_SIZE];
-int               s_raw_head  = 0;
-int               s_raw_count = 0;
-uint64_t          s_total_raw = 0;
+int               s_raw_head      = 0;
+int               s_raw_count     = 0;
+uint64_t          s_total_raw     = 0;
+uint64_t          s_total_scanned = 0;
 SemaphoreHandle_t s_raw_mutex;
 
 void adv_ring_init(void)
 {
     s_raw_mutex = xSemaphoreCreateMutex();
     configASSERT(s_raw_mutex);
+}
+
+void adv_ring_count_scan(void)
+{
+    xSemaphoreTake(s_raw_mutex, portMAX_DELAY);
+    s_total_scanned++;
+    xSemaphoreGive(s_raw_mutex);
 }
 
 void raw_ring_push(const uint8_t *addr_le, int8_t rssi,
