@@ -6,9 +6,9 @@
  *       HTTP on the local Wi-Fi network.
  *
  *       HTTP endpoint:
- *         GET /        → browser UI with Parsed / Raw views
- *         GET /raw     → short-poll JSON feed for recent advertisements
- *         GET /health  → plain-text status probe
+ *         GET /          → browser UI, Parsed view (default)
+ *         GET /?view=raw → browser UI, Raw hex view
+ *         GET /health    → plain-text status probe
  *
  *       Wi-Fi: APSTA concurrent mode.
  *         STA connects to configured network first; AP "seeedmote-gw-XXYY"
