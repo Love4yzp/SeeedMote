@@ -170,8 +170,8 @@ static void state_machine_task(void *p1, void *p2, void *p3)
     int64_t next_burst_time = 0;
     int64_t next_heartbeat_time = 0;
 
-    /* Settle and seed prev_mg with first reading. */
-    k_msleep(100);
+    /* Seed prev_mg with first reading; BLE and IMU are guaranteed ready
+     * because main() does not start this thread until init succeeded. */
     int32_t seed = read_magnitude_mg();
     if (seed > 0) {
         prev_mg = seed;
@@ -228,8 +228,12 @@ static void state_machine_task(void *p1, void *p2, void *p3)
     }
 }
 
+/* Do not auto-start at boot. main() starts the thread only after BLE has
+ * been enabled, the first advertisement is live, and the IMU is verified
+ * ready. Otherwise the first events race bt_le_adv_update_data() and are
+ * lost on every cold boot. */
 K_THREAD_DEFINE(state_thread_id, 2048, state_machine_task, NULL, NULL, NULL,
-                K_PRIO_PREEMPT(5), 0, 0);
+                K_PRIO_PREEMPT(5), 0, K_TICKS_FOREVER);
 
 /* ---- Liveness LED ------------------------------------------------------- */
 
@@ -279,8 +283,9 @@ int main(void)
         return rc;
     }
 
-    if (!device_is_ready(imu_dev)) {
-        LOG_WRN("imu device %s not ready — broadcasting STILL only",
+    bool imu_ready = device_is_ready(imu_dev);
+    if (!imu_ready) {
+        LOG_WRN("imu device %s not ready — state machine will not start",
                 imu_dev->name);
     } else {
         LOG_INF("imu device: %s", imu_dev->name);
@@ -307,6 +312,13 @@ int main(void)
         return rc;
     }
     LOG_INF("advertising started (BTHome v2 service UUID 0xFCD2)");
+
+    /* All init succeeded — release the state machine thread. Skipping the
+     * start when the IMU is dead keeps the initial pre-seeded payload as a
+     * static "no event yet" signal instead of streaming false motion. */
+    if (imu_ready) {
+        k_thread_start(state_thread_id);
+    }
 
     return 0;
 }
