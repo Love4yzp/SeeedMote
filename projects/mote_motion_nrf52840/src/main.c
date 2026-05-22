@@ -2,12 +2,23 @@
  * SeeedMote v2 — mote_motion_nrf52840.
  *
  * Role: BLE event mote. Samples the LSM6DS3TR-C IMU, classifies motion
- *       events (STILL / MOVING / PICK_UP), and broadcasts each event as
- *       a BTHome v2 Service Data advertisement. No reverse channel is
- *       implemented in this version; configuration and OTA are kept out of
- *       the default air format.
+ *       events (MOVING / PICK_UP), and broadcasts each event as a BTHome
+ *       v2 Service Data advertisement. STILL is the implicit default —
+ *       no frame is emitted, consumers infer it from the absence of
+ *       further events. No reverse channel is implemented in this
+ *       version; configuration and OTA are kept out of the default air
+ *       format.
  *
  * Board: Seeed XIAO nRF52840 Sense (board id: xiao_ble).
+ *
+ * Event-driven model (in lockstep with contracts/airframe.yaml):
+ *   - event_counter (BTHome 0x3E) advances exactly once per business
+ *     event. A burst retransmission of the same event reuses the same
+ *     event_counter so consumer-side (mote_mac, ctr) dedup collapses
+ *     the burst to one interaction.
+ *   - packet_id (BTHome 0x00) advances on every adv update so BTHome
+ *     receivers can drop in-air duplicates at the link layer.
+ *   - No periodic heartbeat. MOVING -> STILL transition emits no frame.
  *
  * Wire format (must stay in lockstep with contracts/airframe.yaml and the
  * gateway parser):
@@ -15,10 +26,10 @@
  *   AD type 0x16 Service Data - 16-bit UUID
  *   [2B] UUID               = 0xFCD2, little-endian on air (D2 FC)
  *   [1B] device_info        = BTHome v2, trigger-based, unencrypted (0x44)
- *   [2B] packet id          = object 0x00, uint8 duplicate filter
+ *   [2B] packet id          = object 0x00, uint8 BLE-link dedup id
  *   [2B] moving             = object 0x22, uint8
  *   [2B] vibration          = object 0x2C, uint8 (PICK_UP pulse)
- *   [5B] count              = object 0x3E, uint32 event counter
+ *   [5B] count              = object 0x3E, uint32 business event counter
  *
  * Detection happens here on the mote (physical-event semantics). Business
  * interpretation (which SKU, conversion, UI) lives on the consumer side.
@@ -52,7 +63,6 @@ LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 #define BTHOME_OBJ_VIBRATION  0x2Cu
 #define BTHOME_OBJ_COUNT_U32  0x3Eu
 
-#define EV_STILL   0x00u
 #define EV_MOVING  0x01u
 #define EV_PICKUP  0x02u
 
@@ -63,9 +73,8 @@ LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 #define MOTION_THRESHOLD_MG    80     /* per-sample |delta| trigger        */
 #define PICKUP_PEAK_MG         1500   /* abs accel magnitude → PICK_UP     */
 #define T_IDLE_MS              2000   /* MOVING → STILL after idle window  */
-#define ADV_HEARTBEAT_MS       200    /* MOVING heartbeat interval         */
-#define PICKUP_BURST_COUNT     5      /* PICK_UP burst transmissions       */
-#define PICKUP_BURST_MS        100    /* PICK_UP burst interval            */
+#define PICKUP_BURST_COUNT     5      /* burst transmissions per event     */
+#define PICKUP_BURST_MS        100    /* burst interval                    */
 
 #define SAMPLE_INTERVAL_MS     50
 
@@ -88,7 +97,16 @@ enum mote_state {
 
 static enum mote_state current_state = STATE_STILL;
 
+/* event_counter advances exactly once per business event (a discrete
+ * pickup or a STILL -> MOVING transition). Burst retransmissions of the
+ * same event reuse the same event_counter so consumer-side
+ * (mote_mac, ctr) dedup collapses them to one interaction.
+ *
+ * bthome_pid advances on every BLE advertisement update so BTHome
+ * receivers can drop in-air duplicates at the link layer. The two
+ * counters intentionally drift apart. */
 static uint32_t event_counter;
+static uint8_t  bthome_pid;
 
 struct __packed bthome_payload {
     uint8_t  uuid_le[2];
@@ -115,23 +133,41 @@ static struct bt_data adv_data[] = {
 
 /* ---- Adv ---------------------------------------------------------------- */
 
-static int update_payload_and_adv(uint8_t event_type)
+/* Rebuild the BLE payload with the current event_counter and a fresh
+ * BTHome packet_id, then push it to the controller. Used by both
+ * emit_new_event() and republish_event(). */
+static int rebuild_and_push_adv(uint8_t event_type)
 {
-    uint32_t next_counter = ++event_counter;
+    bthome_pid++;
 
     payload.uuid_le[0]    = BTHOME_UUID_LSB;
     payload.uuid_le[1]    = BTHOME_UUID_MSB;
     payload.device_info   = BTHOME_DEVINFO_V2_TRIGGER;
     payload.packet_id_id  = BTHOME_OBJ_PACKET_ID;
-    payload.packet_id     = (uint8_t)next_counter;
+    payload.packet_id     = bthome_pid;
     payload.moving_id     = BTHOME_OBJ_MOVING;
-    payload.moving        = (event_type == EV_STILL) ? 0u : 1u;
+    payload.moving        = 1u;  /* any emitted event implies moving=1 */
     payload.vibration_id  = BTHOME_OBJ_VIBRATION;
     payload.vibration     = (event_type == EV_PICKUP) ? 1u : 0u;
     payload.count_id      = BTHOME_OBJ_COUNT_U32;
-    payload.event_counter = sys_cpu_to_le32(next_counter);
+    payload.event_counter = sys_cpu_to_le32(event_counter);
     return bt_le_adv_update_data(adv_data, ARRAY_SIZE(adv_data),
                                  NULL, 0);
+}
+
+/* New business event: bump event_counter, then push the frame. */
+static int emit_new_event(uint8_t event_type)
+{
+    event_counter++;
+    return rebuild_and_push_adv(event_type);
+}
+
+/* Retransmit the most recent business event for BLE-link reliability.
+ * event_counter is unchanged so consumer-side dedup collapses the burst
+ * to a single interaction. Only BTHome packet_id advances. */
+static int republish_event(uint8_t event_type)
+{
+    return rebuild_and_push_adv(event_type);
 }
 
 /* ---- IMU sampling ------------------------------------------------------- */
@@ -167,8 +203,8 @@ static void state_machine_task(void *p1, void *p2, void *p3)
     int32_t prev_mg = 1000;
     int64_t last_motion_time = 0;
     int     burst_left = 0;
+    uint8_t burst_event_type = EV_PICKUP;
     int64_t next_burst_time = 0;
-    int64_t next_heartbeat_time = 0;
 
     /* Seed prev_mg with first reading; BLE and IMU are guaranteed ready
      * because main() does not start this thread until init succeeded. */
@@ -189,39 +225,36 @@ static void state_machine_task(void *p1, void *p2, void *p3)
             last_motion_time = now;
             if (current_state == STATE_STILL) {
                 current_state = STATE_MOVING;
-                LOG_INF("STILL -> MOVING (mg=%d delta=%d)", mg_now, delta);
-
-                /* Hard accel spike → PICK_UP, burst the gateway. */
-                if (mg_now > PICKUP_PEAK_MG || delta > PICKUP_PEAK_MG) {
-                    burst_left      = PICKUP_BURST_COUNT;
-                    next_burst_time = now;
-                    LOG_INF("PICK_UP burst (peak=%d)", mg_now);
-                } else {
-                    update_payload_and_adv(EV_MOVING);
-                }
-                next_heartbeat_time = now + ADV_HEARTBEAT_MS;
+                bool pickup = (mg_now > PICKUP_PEAK_MG ||
+                               delta  > PICKUP_PEAK_MG);
+                burst_event_type = pickup ? EV_PICKUP : EV_MOVING;
+                LOG_INF("STILL -> %s (mg=%d delta=%d ctr=%u)",
+                        pickup ? "PICK_UP" : "MOVING",
+                        mg_now, delta, event_counter + 1);
+                emit_new_event(burst_event_type);
+                /* Burst retransmits the same ctr to harden the BLE
+                 * single-frame loss probability. PID still advances per
+                 * adv so BTHome-level dedup keeps working. */
+                burst_left      = PICKUP_BURST_COUNT - 1;
+                next_burst_time = now + PICKUP_BURST_MS;
             }
         }
 
         if (burst_left > 0 && now >= next_burst_time) {
-            update_payload_and_adv(EV_PICKUP);
+            republish_event(burst_event_type);
             burst_left--;
             next_burst_time = now + PICKUP_BURST_MS;
-        }
-
-        if (current_state == STATE_MOVING && burst_left == 0 &&
-            now >= next_heartbeat_time) {
-            update_payload_and_adv(EV_MOVING);
-            next_heartbeat_time = now + ADV_HEARTBEAT_MS;
         }
 
         if (current_state == STATE_MOVING &&
             (now - last_motion_time) >= T_IDLE_MS) {
             current_state = STATE_STILL;
-            LOG_INF("MOVING -> STILL (idle %lldms)",
+            LOG_INF("MOVING -> STILL (idle %lldms) — no frame emitted",
                     (long long)(now - last_motion_time));
-            update_payload_and_adv(EV_STILL);
             burst_left = 0;
+            /* Event-driven: STILL is the default state. We do NOT emit a
+             * frame here — consumers infer "no longer interacting" from
+             * the absence of further events. */
         }
 
         k_msleep(SAMPLE_INTERVAL_MS);
