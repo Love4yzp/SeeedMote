@@ -1,13 +1,13 @@
 /*
  * SeeedMote v2 — mote_motion_nrf52840.
  *
- * Role: BLE event mote. Samples the LSM6DS3TR-C IMU, classifies motion
- *       events (MOVING / PICK_UP), and broadcasts each event as a BTHome
- *       v2 Service Data advertisement. STILL is the implicit default —
- *       no frame is emitted, consumers infer it from the absence of
- *       further events. No reverse channel is implemented in this
- *       version; configuration and OTA are kept out of the default air
- *       format.
+ * Role: BLE event mote. Uses the LSM6DS3TR-C hardware motion trigger to
+ *       detect movement, classifies events (MOVING / PICK_UP), and
+ *       broadcasts each as a BTHome v2 Service Data advertisement. STILL
+ *       is the implicit default — no frame is emitted, consumers infer
+ *       it from the absence of further events. No reverse channel is
+ *       implemented in this version; configuration and OTA are kept out
+ *       of the default air format.
  *
  * Board: Seeed XIAO nRF52840 Sense (board id: xiao_ble).
  *
@@ -69,14 +69,13 @@ LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 /* ---- Detection parameters (future config field names) ------------------- */
 
 /* First-pass defaults; tune in lab. Light items (rings, light shoes) likely
- * need PICKUP_PEAK_MG dropped to ~300-500. See plan risk note. */
-#define MOTION_THRESHOLD_MG    80     /* per-sample |delta| trigger        */
+ * need PICKUP_PEAK_MG dropped to ~300-500.
+ * Hardware wakeup threshold (slope_th) is controlled via the LSM6DSL driver
+ * Kconfig/devicetree; default driver values are used until board bring-up. */
 #define PICKUP_PEAK_MG         1500   /* abs accel magnitude → PICK_UP     */
 #define T_IDLE_MS              2000   /* MOVING → STILL after idle window  */
 #define PICKUP_BURST_COUNT     5      /* burst transmissions per event     */
 #define PICKUP_BURST_MS        100    /* burst interval                    */
-
-#define SAMPLE_INTERVAL_MS     50
 
 /* ---- Devicetree ---------------------------------------------------------- */
 
@@ -170,28 +169,49 @@ static int republish_event(uint8_t event_type)
     return rebuild_and_push_adv(event_type);
 }
 
-/* ---- IMU sampling ------------------------------------------------------- */
+/* ---- IMU motion trigger + PICKUP peak check ----------------------------- */
 
-/* L1-norm magnitude in mg. Accurate enough for threshold detection
- * (within ~13% of L2 norm) and avoids pulling in math / sqrt. */
-static int32_t read_magnitude_mg(void)
+static K_SEM_DEFINE(motion_sem, 0, 1);
+
+static void motion_trigger_handler(const struct device *dev,
+                                   const struct sensor_trigger *trig)
+{
+    ARG_UNUSED(dev);
+    ARG_UNUSED(trig);
+    k_sem_give(&motion_sem);
+}
+
+static int setup_motion_trigger(void)
+{
+    static const struct sensor_trigger trig = {
+        .type = SENSOR_TRIG_MOTION,
+        .chan = SENSOR_CHAN_ACCEL_XYZ,
+    };
+    return sensor_trigger_set(imu_dev, &trig, motion_trigger_handler);
+}
+
+/* Read accel once and return true if the peak magnitude suggests a PICK_UP.
+ * Called immediately after a motion trigger fires; the trigger itself
+ * has already confirmed motion, so no prev_mg delta is needed.
+ *
+ * sensor_value_to_milli() returns m/s² × 1000. Convert to mg via ×102/1000
+ * (approximation of /9.80665 × 1000), L1-norm avoids sqrt. */
+static bool check_pickup_peak(void)
 {
     struct sensor_value accel[3];
 
-    if (sensor_sample_fetch(imu_dev) < 0) {
-        return 0;
-    }
-    if (sensor_channel_get(imu_dev, SENSOR_CHAN_ACCEL_XYZ, accel) < 0) {
-        return 0;
+    if (sensor_sample_fetch(imu_dev) < 0 ||
+        sensor_channel_get(imu_dev, SENSOR_CHAN_ACCEL_XYZ, accel) < 0) {
+        return false;
     }
 
-    /* sensor_value_to_milli() returns value × 1000 (m/s² × 1000).
-     * Convert to mg by /9.80665, approximated as ×102/1000. */
     int64_t ax = sensor_value_to_milli(&accel[0]);
     int64_t ay = sensor_value_to_milli(&accel[1]);
     int64_t az = sensor_value_to_milli(&accel[2]);
     int64_t mag_mm = llabs(ax) + llabs(ay) + llabs(az);
-    return (int32_t)((mag_mm * 102) / 1000);
+    int32_t mg_now = (int32_t)((mag_mm * 102) / 1000);
+
+    return mg_now > PICKUP_PEAK_MG;
 }
 
 /* ---- State machine thread ---------------------------------------------- */
@@ -200,37 +220,30 @@ static void state_machine_task(void *p1, void *p2, void *p3)
 {
     ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
 
-    int32_t prev_mg = 1000;
     int64_t last_motion_time = 0;
-    int     burst_left = 0;
-    uint8_t burst_event_type = EV_PICKUP;
-    int64_t next_burst_time = 0;
+    int     burst_left       = 0;
+    uint8_t burst_event_type = EV_MOVING;
+    int64_t next_burst_time  = 0;
 
-    /* Seed prev_mg with first reading; BLE and IMU are guaranteed ready
-     * because main() does not start this thread until init succeeded. */
-    int32_t seed = read_magnitude_mg();
-    if (seed > 0) {
-        prev_mg = seed;
-    }
-
+    /* Block until the hardware motion trigger fires or until PICKUP_BURST_MS
+     * elapses (whichever comes first). The short timeout lets us service
+     * in-flight burst retransmissions without a separate timer thread, while
+     * still sleeping between events instead of busy-polling. The MOVING→STILL
+     * idle transition is detected by comparing k_uptime_get() against
+     * last_motion_time on every wakeup. */
     while (1) {
-        int32_t mg_now = read_magnitude_mg();
-        int32_t delta  = (mg_now > prev_mg) ? (mg_now - prev_mg)
-                                             : (prev_mg - mg_now);
-        int64_t now    = k_uptime_get();
-        bool    motion = delta > MOTION_THRESHOLD_MG;
-        prev_mg = mg_now;
+        bool got_motion =
+            (k_sem_take(&motion_sem, K_MSEC(PICKUP_BURST_MS)) == 0);
+        int64_t now = k_uptime_get();
 
-        if (motion) {
+        if (got_motion) {
             last_motion_time = now;
             if (current_state == STATE_STILL) {
-                current_state = STATE_MOVING;
-                bool pickup = (mg_now > PICKUP_PEAK_MG ||
-                               delta  > PICKUP_PEAK_MG);
+                current_state    = STATE_MOVING;
+                bool pickup      = check_pickup_peak();
                 burst_event_type = pickup ? EV_PICKUP : EV_MOVING;
-                LOG_INF("STILL -> %s (mg=%d delta=%d ctr=%u)",
-                        pickup ? "PICK_UP" : "MOVING",
-                        mg_now, delta, event_counter + 1);
+                LOG_INF("STILL -> %s (ctr=%u)",
+                        pickup ? "PICK_UP" : "MOVING", event_counter + 1);
                 emit_new_event(burst_event_type);
                 /* Burst retransmits the same ctr to harden the BLE
                  * single-frame loss probability. PID still advances per
@@ -238,6 +251,8 @@ static void state_machine_task(void *p1, void *p2, void *p3)
                 burst_left      = PICKUP_BURST_COUNT - 1;
                 next_burst_time = now + PICKUP_BURST_MS;
             }
+            /* STATE_MOVING: last_motion_time updated above; idle window
+             * is reset without emitting a new event. */
         }
 
         if (burst_left > 0 && now >= next_burst_time) {
@@ -249,15 +264,9 @@ static void state_machine_task(void *p1, void *p2, void *p3)
         if (current_state == STATE_MOVING &&
             (now - last_motion_time) >= T_IDLE_MS) {
             current_state = STATE_STILL;
-            LOG_INF("MOVING -> STILL (idle %lldms) — no frame emitted",
-                    (long long)(now - last_motion_time));
+            LOG_INF("MOVING -> STILL (idle) — no frame emitted");
             burst_left = 0;
-            /* Event-driven: STILL is the default state. We do NOT emit a
-             * frame here — consumers infer "no longer interacting" from
-             * the absence of further events. */
         }
-
-        k_msleep(SAMPLE_INTERVAL_MS);
     }
 }
 
@@ -322,6 +331,12 @@ int main(void)
                 imu_dev->name);
     } else {
         LOG_INF("imu device: %s", imu_dev->name);
+        rc = setup_motion_trigger();
+        if (rc) {
+            LOG_WRN("motion trigger setup failed (%d) — state machine will not start",
+                    rc);
+            imu_ready = false;
+        }
     }
 
     /* Pre-seed payload so the first advertisement is well-formed. */
