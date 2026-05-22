@@ -66,16 +66,25 @@ LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 #define EV_MOVING  0x01u
 #define EV_PICKUP  0x02u
 
-/* ---- Detection parameters (future config field names) ------------------- */
+/* ---- Detection parameters ------------------------------------------------ */
 
-/* First-pass defaults; tune in lab. Light items (rings, light shoes) likely
- * need PICKUP_PEAK_MG dropped to ~300-500.
- * Hardware wakeup threshold (slope_th) is controlled via the LSM6DSL driver
- * Kconfig/devicetree; default driver values are used until board bring-up. */
-#define PICKUP_PEAK_MG         1500   /* abs accel magnitude → PICK_UP     */
-#define T_IDLE_MS              2000   /* MOVING → STILL after idle window  */
-#define PICKUP_BURST_COUNT     5      /* burst transmissions per event     */
-#define PICKUP_BURST_MS        100    /* burst interval                    */
+struct mote_config {
+    int32_t pickup_peak_mg;    /* abs L1-norm accel magnitude → PICK_UP     */
+    int32_t t_idle_ms;         /* MOVING → STILL idle window                */
+    int     pickup_burst_count;/* burst retransmissions per event           */
+    int     pickup_burst_ms;   /* interval between burst frames             */
+};
+
+/* Defaults. Tune pickup_peak_mg in lab — light items (rings, light shoes)
+ * likely need ~300-500. Hardware wakeup threshold (slope_th) is controlled
+ * via the LSM6DSL driver Kconfig/devicetree; tune after board bring-up.
+ * TODO: load from NVS/settings when a downlink config channel exists (Step 5/6). */
+static struct mote_config cfg = {
+    .pickup_peak_mg    = 1500,
+    .t_idle_ms         = 2000,
+    .pickup_burst_count = 5,
+    .pickup_burst_ms   = 100,
+};
 
 /* ---- Devicetree ---------------------------------------------------------- */
 
@@ -211,7 +220,7 @@ static bool check_pickup_peak(void)
     int64_t mag_mm = llabs(ax) + llabs(ay) + llabs(az);
     int32_t mg_now = (int32_t)((mag_mm * 102) / 1000);
 
-    return mg_now > PICKUP_PEAK_MG;
+    return mg_now > cfg.pickup_peak_mg;
 }
 
 /* ---- State machine thread ---------------------------------------------- */
@@ -225,7 +234,7 @@ static void state_machine_task(void *p1, void *p2, void *p3)
     uint8_t burst_event_type = EV_MOVING;
     int64_t next_burst_time  = 0;
 
-    /* Block until the hardware motion trigger fires or until PICKUP_BURST_MS
+    /* Block until the hardware motion trigger fires or until pickup_burst_ms
      * elapses (whichever comes first). The short timeout lets us service
      * in-flight burst retransmissions without a separate timer thread, while
      * still sleeping between events instead of busy-polling. The MOVING→STILL
@@ -233,7 +242,7 @@ static void state_machine_task(void *p1, void *p2, void *p3)
      * last_motion_time on every wakeup. */
     while (1) {
         bool got_motion =
-            (k_sem_take(&motion_sem, K_MSEC(PICKUP_BURST_MS)) == 0);
+            (k_sem_take(&motion_sem, K_MSEC(cfg.pickup_burst_ms)) == 0);
         int64_t now = k_uptime_get();
 
         if (got_motion) {
@@ -248,8 +257,8 @@ static void state_machine_task(void *p1, void *p2, void *p3)
                 /* Burst retransmits the same ctr to harden the BLE
                  * single-frame loss probability. PID still advances per
                  * adv so BTHome-level dedup keeps working. */
-                burst_left      = PICKUP_BURST_COUNT - 1;
-                next_burst_time = now + PICKUP_BURST_MS;
+                burst_left      = cfg.pickup_burst_count - 1;
+                next_burst_time = now + cfg.pickup_burst_ms;
             }
             /* STATE_MOVING: last_motion_time updated above; idle window
              * is reset without emitting a new event. */
@@ -258,11 +267,11 @@ static void state_machine_task(void *p1, void *p2, void *p3)
         if (burst_left > 0 && now >= next_burst_time) {
             republish_event(burst_event_type);
             burst_left--;
-            next_burst_time = now + PICKUP_BURST_MS;
+            next_burst_time = now + cfg.pickup_burst_ms;
         }
 
         if (current_state == STATE_MOVING &&
-            (now - last_motion_time) >= T_IDLE_MS) {
+            (now - last_motion_time) >= cfg.t_idle_ms) {
             current_state = STATE_STILL;
             LOG_INF("MOVING -> STILL (idle) — no frame emitted");
             burst_left = 0;
