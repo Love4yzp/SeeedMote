@@ -24,6 +24,40 @@ Service Data UUID `0xFCD2` 广播标准 `packet id` / `moving` /
 `vibration` / `count` 对象。没有业务用途的历史私有字段不进入默认
 air format。
 
+## 事件型(event-driven),不是数据型 IoT
+
+整个系统是**事件型**。这条原则约束所有契约和实现:
+
+| 维度 | 数据型 IoT(我们不是) | **SeeedMote(事件型)** |
+|---|---|---|
+| 上行触发 | 周期采样 / 心跳 | 业务条件触发才广播 |
+| Payload 性质 | 数值时序 | 业务语义对象(moving / vibration / count) |
+| Mote 静默期 | 异常("丢数据") | 正常("没事发生") |
+| Gateway 角色 | 数据采集汇聚 | 事件中继 + 去噪(stateless) |
+| Broker | 时序数据传输 | 事件总线(不持久化) |
+| 消费侧 | 时序图 / 阈值告警 / 数据库 | 事件流 / 状态机派生 / 业务响应 |
+| **不要的东西** | n/a | raw 采样缓存 / 周期 telemetry counter / 心跳 topic |
+
+落地到契约(全部 v1):
+
+- `contracts/airframe.yaml`:`count` 字段定义为"每业务事件递增一次,**不是 heartbeat**"
+- `contracts/mqtt-uplink.yaml`:`event` 一帧一发,`status` 仅在 transition 发,**无周期 telemetry**
+- `contracts/mqtt-downlink.yaml`:`cmd` 仅 JSON,gateway 是 stateless 中继
+
+**如果你发现自己在加周期发布、心跳计数器、raw 缓存,你走错路了** —— 回到契约定义,把事件挑出来,把"持续的状态"留给消费侧从事件派生。
+
+## 链路(4 段,没有第五段)
+
+```
+ ┌────────┐  BLE adv  ┌─────────┐  MQTT pub  ┌────────┐  MQTT sub  ┌─────────┐
+ │  Mote  │──事件────▶│ Gateway │──事件─────▶│ Broker │──事件─────▶│   App   │
+ │ (电池) │  BTHome   │ ESP32S3 │  event/    │(外部)  │  +/event   │ 消费侧  │
+ └────────┘           └─────────┘  status    └────────┘            └─────────┘
+   触发源              中继 + 去噪              总线                 消费 + 展示
+```
+
+消费侧形态由方案决定 —— Home Assistant 是其中一条路径(见 `solutions/`,后续提交),不是产品定位本身。
+
 ## 三个独立维度
 
 | 维度 | 内容 | 决定 |
@@ -104,14 +138,19 @@ Project 名格式:`<role>_<function>_<chip>`(如 `mote_motion_nrf52840`、`gatew
 | `tools/codegen` / `tools/scaffold` | 没有第二个 mote 形态前不做 |
 | 端到端加密 / 多租户 / ACL | v2.1+ |
 | 网关间协调 / 选主 / 集群去重 | 显式拒绝,消费侧按 BTHome `count` + 设备地址去重 |
+| **周期 telemetry / raw 数据流上报** | **显式拒绝** —— 事件型系统不收集"无事件期"的数据,运维信号通过 cmd 触发 status 重发,不走心跳 |
 
 ## 实测验证(2026-05)
 
 | 项 | 状态 | 详情 |
 |---|---|---|
-| Gateway PIO + ESP-IDF 编译 | ✅ 通过 | 234 KB firmware.bin,22.4% flash,需 `set(PROJECT_VER ...)` 绕 git_describe |
+| Gateway PIO + ESP-IDF 编译 | ✅ 通过 | 1.0 MB firmware.bin,65.4% flash(Wi-Fi+NimBLE+MQTT+lwIP);需 `set(PROJECT_VER ...)` 绕 git_describe |
 | Gateway BLE observer + JSON 出口 | ✅ 实装 | NimBLE passive scan;解码 BTHome v2 Service Data;UART 一行一帧 |
+| Gateway Wi-Fi STA + MQTT 出口 | ✅ 实装 | topic `mote/v1/{gw_id}/{event\|status\|cmd}`;status retained + LWT;cmd JSON-only(见 `contracts/mqtt-downlink.yaml`) |
 | Mote west + NCS 编译 | ⏳ 结构对齐 v2.0 已工作样式 | 实际 `west update` (~4 GB) 留待业务开发时触发 |
 | Mote bring-up step 2 (BLE adv) | ✅ 实装(待板上验证) | BTHome v2 non-connectable adv;step 3+ 接 IMU |
+| Mote 事件型语义对齐 | ⚠️ 待重写 | 当前 `ctr` 每 200ms 递增 + pickup burst 每次递增,违反 airframe.yaml 的"事件型 counter"定义;Step 2 重写中 |
 | Contract `contracts/airframe.yaml` v1 | ✅ 落地 | SeeedMote BTHome 对象映射,无加密、需部署前补认证 / bindkey |
+| Contract `contracts/mqtt-uplink.yaml` v1 | ✅ 落地 | event + status,无 raw 无 telemetry counter |
+| Contract `contracts/mqtt-downlink.yaml` v1 | ✅ 落地 | JSON-only cmd,裸字符串明示拒绝 |
 | PIO + Zephyr(预想路线) | ❌ 推翻 | Zephyr 2.7.1 太旧、bug 多、无 XIAO 板 —— 死路 |

@@ -10,10 +10,11 @@
 
 当前状态:**第一版端到端打通(2026-05)**。
 
-- mote:LSM6DS3TR-C IMU 实时采样,状态机驱动 non-connectable BTHome v2 Service Data adv(UUID=0xFCD2,对象 packet id/moving/vibration/count),USB CDC(product="seeedmote-motion")
-- gateway:NimBLE OBSERVER,JSON 出口字段:ts/gw_id/mote_mac/rssi/moving/vibration/pid/ctr
-- 跨设备契约:`contracts/airframe.yaml` v1(BTHome motion profile,uplink only,无加密)
-- 仍未做:MQTT 出口、System OFF、消息认证
+- mote:LSM6DS3TR-C IMU 实时采样,状态机驱动 non-connectable BTHome v2 Service Data adv(UUID=0xFCD2,对象 packet id/moving/vibration/count),USB CDC(product="seeedmote-motion")。**事件型语义尚未收敛**(`ctr` 当前像 heartbeat,Step 2 重写中)。
+- gateway:NimBLE OBSERVER + Wi-Fi STA + MQTT。事件型上行 `mote/v1/{gw_id}/event` + `/status` retained + LWT;下行 `/cmd` JSON-only。UART 同步保留便于本地调试。
+- 跨设备契约:三份 v1 —— `contracts/airframe.yaml`(BLE) + `mqtt-uplink.yaml`(event/status) + `mqtt-downlink.yaml`(cmd)
+- 架构原则:**事件型** —— 不发周期 telemetry,不发 raw 数据流,不发心跳。详见 `docs/architecture.md` 的"事件型"小节。
+- 仍未做:mote 事件型语义收敛、System OFF、消息认证、battery 字段(留 v2)
 
 ---
 
