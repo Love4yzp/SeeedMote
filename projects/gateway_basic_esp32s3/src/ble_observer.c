@@ -1,5 +1,4 @@
 #include "ble_observer.h"
-#include "adv_ring.h"
 #include "bthome.h"
 #include "mqtt_gateway.h"
 
@@ -57,8 +56,6 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
     (void)arg;
     if (event->type != BLE_GAP_EVENT_DISC) return 0;
 
-    adv_ring_count_scan();
-
     /* Rate-limited log so we can verify scanning is alive without logspam. */
     static int64_t last_any_log_us = 0;
     int64_t now_us = esp_timer_get_time();
@@ -75,11 +72,7 @@ static int gap_event_cb(struct ble_gap_event *event, void *arg)
         return 0;
 
     emit_event(event->disc.addr.val, event->disc.rssi, &parsed);
-    raw_ring_push(event->disc.addr.val, event->disc.rssi,
-                  event->disc.data, event->disc.length_data,
-                  &parsed);
     mqtt_gateway_publish_motion_event(event->disc.addr.val, event->disc.rssi,
-                                      event->disc.data, event->disc.length_data,
                                       &parsed);
     return 0;
 }
