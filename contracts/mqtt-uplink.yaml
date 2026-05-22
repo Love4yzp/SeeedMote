@@ -1,0 +1,99 @@
+# SeeedMote v2 — Gateway → Broker → Consumer (MQTT uplink contract).
+#
+# Scope: MQTT topics and payloads published BY the gateway. The mote-to-
+# gateway BLE airframe is defined in `airframe.yaml`; downlink (consumer-
+# to-gateway) commands are in `mqtt-downlink.yaml`.
+#
+# Model: event-driven. The gateway publishes only when something happens:
+#   - `event` once per BTHome motion frame that matches the airframe.
+#   - `status` on state transitions (broker connect, cmd ack, last will).
+# There is NO periodic telemetry, NO raw advertisement stream, and NO
+# health counter heartbeat. If you find yourself adding a periodic publish
+# loop, you are designing data-driven IoT and should re-read the contract.
+#
+# Changing this file is a cross-device change. Coordinate gateway firmware,
+# consumer implementations, and this schema in lockstep.
+
+contract:
+  name: seeedmote-mqtt-uplink
+  version: 1
+  direction: gateway_to_consumer
+  transport: mqtt
+  topic_namespace: mote/v1
+  client_id_pattern: "seeedmote-gw-{gw_id_last4}"
+
+topics:
+  - name: event
+    pattern: "mote/v1/{gw_id}/event"
+    qos: 1
+    retained: false
+    semantics: event-per-match
+    purpose: |
+      One publish per matched BTHome motion frame. Consumers parse the
+      payload, dedup by (mote_mac, ctr), and apply business logic.
+    payload_schema:
+      ts:        int64   # gateway uptime in milliseconds (NOT wall clock)
+      gw_id:     string  # 12 hex chars, gateway BLE MAC, MSB-first
+      mote_mac:  string  # 12 hex chars, mote BLE MAC, MSB-first
+      rssi:      int     # dBm, gateway-reported
+      moving:    bool    # BTHome 0x22 moving (or 0x21 motion fallback)
+      vibration: bool    # BTHome 0x2C vibration (transient pulse)
+      pid:       uint8   # BTHome packet_id, 255 if absent
+      ctr:       uint32  # BTHome count, 0 if absent
+    consumer_dedup_key: [mote_mac, ctr]
+
+  - name: status
+    pattern: "mote/v1/{gw_id}/status"
+    qos: 1
+    retained: true
+    semantics: event-on-transition
+    purpose: |
+      Published when the gateway changes online state or acks a command.
+      Retained so late-joining consumers see last known state. NO
+      diagnostic counters, NO uptime heartbeat — those belong in tooling
+      outside this contract.
+    last_will:
+      payload: '{"online":false}'
+      qos: 1
+      retained: true
+    payload_schema:
+      online:    bool
+      reason:    string   # "connected" | "cmd" | "cmd_start_ble" | "cmd_unknown"
+      gw_id:     string
+      ip:        string   # STA IP, "0.0.0.0" if not connected
+      wifi_ssid: string
+
+gateway_id_semantics:
+  note: |
+    `gw_id` identifies the RELAYING gateway, not the originating device or
+    a routing attribute. The mote is a broadcaster — its frames are heard
+    by every gateway in radio range. In multi-gateway deployments the same
+    business event arrives via MULTIPLE `gw_id`s.
+
+    Consumers MUST NOT group business statistics by `gw_id`. Subscribe with
+    a wildcard (e.g., `mote/v1/+/event`) and dedup by (mote_mac, ctr).
+
+counter_restart_caveat:
+  note: |
+    The `ctr` field is per-boot monotonic on the mote. A mote reboot resets
+    `ctr` to 0; consumers should detect this (sudden ctr decrease for a
+    known mote_mac) and treat it as a session boundary rather than a
+    duplicate. A future contract version may add a `boot_id` field to make
+    this unambiguous; v1 leaves the responsibility on the consumer.
+
+ha_compat:
+  status: informational
+  note: |
+    Home Assistant compatibility is a CONSUMER-LAYER concern, not a contract
+    obligation. Two paths exist for HA users:
+
+      1. ESPHome bluetooth_proxy: skip this gateway entirely. Flash a XIAO
+         ESP32-S3 with ESPHome bluetooth_proxy firmware; HA discovers BTHome
+         motes natively via the bluetooth integration.
+
+      2. HA MQTT Discovery bridge: subscribe to `mote/v1/+/event` and
+         publish HA-compatible discovery + state messages under the
+         `homeassistant/` namespace. A reference implementation lives in
+         `solutions/retail_interaction/ha_bridge/` (when implemented).
+
+    Neither path requires changing this contract.

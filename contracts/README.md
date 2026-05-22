@@ -1,17 +1,25 @@
 # contracts/
 
-Cross-device contracts (BLE airframe schema, gateway output JSON schema,
-capability declarations). Both the mote firmware and every gateway parser
-must match what is declared here, byte for byte.
+Cross-device contracts (BLE airframe + MQTT topics + payloads). Mote
+firmware, gateway parsers, and consumer applications must match what is
+declared here.
+
+The system is **event-driven**: contracts describe discrete events, never
+periodic telemetry. If you find yourself adding a heartbeat or counter
+stream to a contract, you are on the wrong path — see `airframe.yaml`
+top comment for the model.
 
 ## Status
 
 | File | Status | Covers |
 |---|---|---|
-| [`airframe.yaml`](airframe.yaml) | v1 — BTHome v2, uplink only, no auth | `mote_motion_*` → `gateway_*` BTHome Service Data profile |
+| [`airframe.yaml`](airframe.yaml) | v1 — BTHome v2, uplink only, no auth | `mote_motion_*` → `gateway_*` BLE Service Data |
+| [`mqtt-uplink.yaml`](mqtt-uplink.yaml) | v1 — event + status, no telemetry | `gateway_*` → broker → consumer (event, status) |
+| [`mqtt-downlink.yaml`](mqtt-downlink.yaml) | v1 — JSON-only cmd, no bare strings | consumer → broker → `gateway_*` (cmd) |
 
-Downlink (config writes) will live in a separate `config-service.yaml` once
-connection-oriented configuration is a product requirement.
+Connection-oriented mote configuration (if ever needed) will land in a
+separate `config-service.yaml`. The current MQTT downlink targets the
+gateway, not the mote.
 
 ## How to change a contract
 

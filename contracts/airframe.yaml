@@ -1,5 +1,12 @@
 # SeeedMote v2 — BTHome airframe contract (mote -> gateway, uplink only).
 #
+# Scope: BLE airframe ONLY. Gateway-to-consumer transport contracts (MQTT
+# event / status / cmd) live in `mqtt-uplink.yaml` and `mqtt-downlink.yaml`.
+#
+# Model: event-driven. Mote broadcasts when something happens; it does NOT
+# emit periodic telemetry. The `count` field below carries business-event
+# identity for consumer-side dedup across multiple gateways.
+#
 # This file records the default BLE advertisement profile used by SeeedMote.
 # It intentionally uses BTHome v2 Service Data instead of a private
 # manufacturer-specific frame so generic scanners and Home Assistant style
@@ -80,22 +87,14 @@ objects:
     type: uint32
     bthome_property: count
     note: |
-      Monotonic per-boot event counter, incremented on every payload update.
-      Repeated advertisements with the same value are duplicates.
-
-gateway_output:
-  status: informational
-  schema: |
-    {
-      "ts":        <int>,    // gateway uptime in ms
-      "gw_id":     <hex>,    // gateway BLE MAC, 12 hex chars
-      "mote_mac":  <hex>,    // mote BLE MAC, 12 hex chars
-      "rssi":      <int>,    // dBm, gateway-reported
-      "moving":    <bool>,   // BTHome moving object
-      "vibration": <bool>,   // BTHome vibration object
-      "pid":       <int>,    // BTHome packet id object, 255 if absent
-      "ctr":       <int>     // BTHome count object, 0 if absent
-    }
+      Monotonic per-boot business-event counter. Incremented exactly once
+      per discrete event the mote chooses to report (e.g., a single pickup
+      gesture, a moving-state transition). The same business event MAY be
+      re-advertised in multiple frames sharing identical `count`; BTHome
+      `packet_id` differentiates those transmissions for BTHome-level dedup.
+      Consumers MUST use `(mote_mac, count)` as the unique business-event
+      key — see `mqtt-uplink.yaml` for the consumer-facing schema.
+      NOT a heartbeat: do not increment on a timer.
 
 deduplication:
   gateway: none
