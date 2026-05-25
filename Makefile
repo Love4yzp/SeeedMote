@@ -38,9 +38,15 @@ ifdef PORT
   MONITOR += --monitor-port $(PORT)
 endif
 
-.PHONY: all build flash monitor run clean erase
+.PHONY: all build flash monitor run clean erase retail
 
 all: run
+
+# Retail demo web UI (solutions/retail/)
+#   make retail             live mode (requires MQTT_BROKER env var)
+#   make retail MOCK=true   scripted mock events, no hardware needed
+retail:
+	$(MAKE) -C solutions/retail dev MOCK=$(MOCK)
 
 ifneq (,$(findstring _nrf52,$(PROJECT)))
 build:

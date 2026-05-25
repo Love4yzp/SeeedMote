@@ -15,7 +15,7 @@ allowed-tools: Bash(make:*), Bash(ls:*)
 | `gateway_basic_esp32s3` (**default**) | PlatformIO + ESP-IDF | `make` 不带参数即跑这个 |
 | `mote_motion_nrf52840` | west + NCS v2.9.2 | 必须显式 `PROJECT=mote_motion_nrf52840` |
 
-判定规则(写死,不要质疑):**看 chip 后缀,不看 role 前缀**。`_nrf52*` → west;`_esp32*` → PIO。详见 `docs/for-ai-agents.md`。
+判定规则(写死,不要质疑):**看 chip 后缀,不看 role 前缀**。`_nrf52*` → west;`_esp32*` → PIO。详见根 `AGENTS.md`。
 
 ## Target 速查
 

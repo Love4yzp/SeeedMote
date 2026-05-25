@@ -2,15 +2,18 @@
  * SeeedMote v2 — gateway_basic_esp32s3.
  *
  * Role: BLE gateway. Scans for SeeedMote BLE advertisements, decodes BTHome
- *       v2 Service Data, emits JSON to UART, and publishes event/raw frames to
- *       MQTT on the configured Wi-Fi network.
+ *       v2 Service Data, emits JSON to UART, and publishes event-driven
+ *       MQTT frames on the configured Wi-Fi network.
  *
- *       MQTT topics:
- *         mote/<gw_id>/event   parsed BTHome motion JSON
- *         mote/<gw_id>/raw     raw advertisement JSON with hex data
- *         mote/<gw_id>/status  retained gateway status
- *         mote/<gw_id>/cmd     per-gateway control
- *         mote/all/cmd         broadcast control
+ *       MQTT topics (per contracts/mqtt-uplink.yaml + mqtt-downlink.yaml):
+ *         mote/v1/<gw_id>/event   parsed BTHome motion JSON (per match)
+ *         mote/v1/<gw_id>/status  retained gateway status (on transition)
+ *         mote/v1/<gw_id>/cmd     per-gateway control (JSON {"cmd":"..."})
+ *         mote/v1/all/cmd         broadcast control
+ *
+ *       This is an event-driven system: no periodic telemetry, no raw
+ *       advertisement stream, no heartbeat counters. The gateway publishes
+ *       only when a BTHome frame matches or its state changes.
  *
  *       Wi-Fi:
  *         STA connects to configured network. Credentials live in NVS
@@ -28,22 +31,20 @@
  *   [2B] packet id          = object 0x00, uint8 duplicate filter
  *   [2B] moving             = object 0x22, uint8
  *   [2B] vibration          = object 0x2C, uint8 (PICK_UP pulse)
- *   [5B] count              = object 0x3E, uint32 event counter
+ *   [5B] count              = object 0x3E, uint32 business-event counter
  *
- * No deduplication is done here. Consumers can use (mote_mac, ctr) for
- * repeated advertisements, with the usual reboot caveat unless counters are
- * made persistent in a later product build.
+ * No deduplication is done here. Consumers use (mote_mac, ctr) to dedup
+ * across multi-gateway deployments and BTHome packet_id to dedup re-
+ * advertisements of the same business event.
  *
  * Module layout:
  *   bthome.h/c       — BTHome v2 wire-format parser (pure, no side effects)
- *   adv_ring.h/c     — thread-safe ring buffer for raw advertisements
  *   ble_observer.h/c — NimBLE scanner, GAP callback, JSON-to-UART emitter
- *   mqtt_gateway.h/c — MQTT event/raw publisher and command subscriber
+ *   mqtt_gateway.h/c — MQTT event + status publisher and command subscriber
  *   wifi_mgmt.h/c    — Wi-Fi STA init and NVS credential management
  *   main.c           — startup orchestration and LED blink task
  */
 
-#include "adv_ring.h"
 #include "ble_observer.h"
 #include "mqtt_gateway.h"
 #include "wifi_mgmt.h"
@@ -92,8 +93,6 @@ void app_main(void)
     } else {
         ESP_ERROR_CHECK(err);
     }
-
-    adv_ring_init();
 
     ESP_ERROR_CHECK(esp_read_mac(gw_mac, ESP_MAC_BT));
     ESP_LOGI(TAG, "gw_id=%02x%02x%02x%02x%02x%02x",

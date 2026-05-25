@@ -1,0 +1,65 @@
+# SeeedMote v2 — Consumer → Broker → Gateway (MQTT downlink contract).
+#
+# Scope: MQTT topics and payloads the gateway SUBSCRIBES to. Uplink
+# (gateway → consumer) lives in `mqtt-uplink.yaml`; BLE airframe lives
+# in `airframe.yaml`.
+#
+# Downlink targets the gateway, not the mote. The mote is a one-way
+# broadcaster in v1 (no connection-oriented config service). If a future
+# product needs to configure mote-side parameters, that lands in a new
+# `config-service.yaml` for the connection-oriented path.
+
+contract:
+  name: seeedmote-mqtt-downlink
+  version: 1
+  direction: consumer_to_gateway
+  transport: mqtt
+
+topics:
+  - name: cmd
+    pattern: "mote/v1/{gw_id}/cmd"
+    qos: 1
+    retained: false
+    purpose: Address one specific gateway.
+  - name: cmd_broadcast
+    pattern: "mote/v1/all/cmd"
+    qos: 1
+    retained: false
+    purpose: Address every gateway subscribed to the namespace.
+
+payload_format:
+  encoding: json
+  required_fields: [cmd]
+  unknown_field_policy: ignore
+  invalid_payload_policy: |
+    Non-JSON payloads, missing `cmd`, or unrecognised `cmd` values cause the
+    gateway to publish a status message with reason="cmd_unknown" and take
+    no action. Bare-string payloads (e.g., raw "ping") are NOT supported
+    in v1.
+
+commands:
+  - cmd: ping
+    args: none
+    effect: |
+      Re-publish current gateway status to `mote/v1/{gw_id}/status` with
+      reason="cmd".
+  - cmd: status
+    args: none
+    effect: Same as `ping`. Kept for symmetric naming with the topic name.
+  - cmd: start_ble
+    args: none
+    effect: |
+      Re-arm the BLE observer if it had stopped (e.g., after a Wi-Fi
+      reconnect cycle). Acked via status publish with reason="cmd_start_ble".
+
+examples:
+  - description: Trigger one gateway to re-emit status.
+    topic: "mote/v1/441bf6804166/cmd"
+    payload: '{"cmd":"ping"}'
+  - description: "Broadcast: ask every gateway to re-arm BLE scanning."
+    topic: "mote/v1/all/cmd"
+    payload: '{"cmd":"start_ble"}'
+  - description: Invalid — rejected.
+    topic: "mote/v1/all/cmd"
+    payload: 'ping'
+    gateway_response: status publish with reason="cmd_unknown"

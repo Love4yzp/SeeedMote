@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    @apply bg-slate-50 text-slate-800 min-h-screen;
+  }
+}

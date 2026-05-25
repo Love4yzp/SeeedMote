@@ -1,0 +1,26 @@
+# mote_mac (lowercase hex, no separators, MSB-first per contracts/airframe.yaml)
+# → shoe metadata. The keys here MUST match the `mote_mac` field that the
+# gateway publishes on `mote/v1/{gw_id}/event` (see contracts/mqtt-uplink.yaml).
+#
+# Unmapped mote_macs surface as a "未登记" placeholder card in the UI; add an
+# entry here to give them a SKU and image. No firmware change required.
+
+shoes:
+  "f0e3912cec19":
+    sku: "SH-001"
+    name: "Air Runner 春季款"
+    color: "白 / 橙"
+    price: 599
+    image: "assets/sh001.svg"
+  "f0e3912cec20":
+    sku: "SH-002"
+    name: "City Walk 复古款"
+    color: "黑 / 棕"
+    price: 459
+    image: "assets/sh002.svg"
+  "f0e3912cec21":
+    sku: "SH-003"
+    name: "Trail Pro 越野款"
+    color: "灰 / 绿"
+    price: 799
+    image: "assets/sh003.svg"

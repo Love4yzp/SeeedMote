@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140" width="240" height="140">
+  <rect width="240" height="140" fill="#fff7ed" rx="12"/>
+  <path d="M30 95 Q40 60 80 60 L130 60 Q150 60 165 75 L200 90 Q215 92 215 105 L215 110 Q215 115 210 115 L40 115 Q30 115 30 105 Z"
+        fill="#ffffff" stroke="#f97316" stroke-width="3"/>
+  <path d="M80 60 L80 95 M105 65 L105 95 M130 60 L130 95"
+        stroke="#fb923c" stroke-width="2" fill="none"/>
+  <circle cx="180" cy="100" r="6" fill="#f97316"/>
+  <text x="120" y="135" text-anchor="middle" font-family="ui-sans-serif" font-size="12" fill="#9a3412">SH-001 · Air Runner</text>
+</svg>
