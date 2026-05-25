@@ -29,22 +29,33 @@ mqtt:
   username: !secret mqtt_username
   password: !secret mqtt_password
 
+external_components:
+  - source:
+      type: git
+      url: https://github.com/dz0ny/esphome-bthome
+      ref: main
+    components: [bthome_receiver]
+
 esp32_ble_tracker:
   scan_parameters:
     active: false
 
-bthome:
-  - mac_address: !secret mote_mac
-    name: SeeedMote
-    ibeacon_uuid: ""
-    binary_sensors:
-      - platform: bthome
-        name: Moving
-        type: moving
-      - platform: bthome
-        name: Vibration
-        type: vibration
-    sensors:
-      - platform: bthome
-        name: Count
-        type: count
+bthome_receiver:
+  ble_stack: bluedroid
+  devices:
+    - mac_address: !secret mote_mac
+      name: SeeedMote
+
+binary_sensor:
+  - platform: bthome_receiver
+    mac_address: !secret mote_mac
+    moving:
+      name: "Moving"
+    vibration:
+      name: "Vibration"
+
+sensor:
+  - platform: bthome_receiver
+    mac_address: !secret mote_mac
+    count_uint32:
+      name: "Count"
