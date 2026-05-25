@@ -14,7 +14,7 @@
 
 端到端骨架打通并已验证(2026-05):
 
-- **Mote**:LSM6DS3TR-C 硬件 motion trigger 唤醒,状态机分类事件(MOVING / PICK_UP)并广播 BTHome v2 Service Data(UUID=`0xFCD2`,对象:`packet id/moving/vibration/count`)。`count` 严格按业务事件递增(burst 重发复用同一 count),`packet_id` 用于 BLE 链路去重,无周期 heartbeat。USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
+- **Mote**:LSM6DS3TR-C data-ready interrupt 驱动采样,状态机分类事件(MOVING / PICK_UP)并广播 BTHome v2 Service Data(UUID=`0xFCD2`,对象:`packet id/moving/vibration/count`)。`count` 严格按业务事件递增(burst 重发复用同一 count),`packet_id` 用于 BLE 链路去重,无周期 heartbeat。USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
 - **Gateway**:NimBLE OBSERVER 持续扫描,解码 BTHome v2 motion profile,Wi-Fi STA 接外部 MQTT broker,事件型上行(`mote/v1/{gw_id}/event` + `/status` retained + LWT),下行命令 `/cmd` 接受 `{"cmd":"ping"\|"start_ble"\|"status"}` JSON。UART 同步输出 JSON 便于本地调试。
 - **Contracts**:三份 v1 契约,事件型对齐:
   - [`contracts/airframe.yaml`](contracts/airframe.yaml) —— mote → gateway BLE 帧

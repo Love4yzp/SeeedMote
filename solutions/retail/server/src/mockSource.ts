@@ -1,5 +1,6 @@
-// Scripted virtual-customer timeline — mirrors Python mock_source.py exactly.
-// Three shoes, realistic pickup/hold/putback sequences that loop every 28s.
+// Scripted virtual-customer timeline.
+// Real mote frames always carry moving=true; put-back is inferred by consumers
+// when no recent pickup pulse arrives.
 
 import { EventStore, type GatewayStatus, type MotionEvent } from './eventStore.js';
 
@@ -9,20 +10,16 @@ const MOTE_SH002 = 'f0e3912cec20';
 const MOTE_SH003 = 'f0e3912cec21';
 
 const TIMELINE: [number, string, boolean, boolean][] = [
-  [0.0,  MOTE_SH001, false, true],
+  [0.0,  MOTE_SH001, true,  true],
   [0.5,  MOTE_SH001, true,  false],
   [2.0,  MOTE_SH001, true,  false],
   [4.0,  MOTE_SH001, true,  true],
-  [5.5,  MOTE_SH001, false, false],
-  [8.0,  MOTE_SH002, false, true],
+  [8.0,  MOTE_SH002, true,  true],
   [9.0,  MOTE_SH002, true,  false],
-  [11.0, MOTE_SH002, false, false],
-  [14.0, MOTE_SH003, false, true],
+  [14.0, MOTE_SH003, true,  true],
   [15.0, MOTE_SH003, true,  false],
-  [16.5, MOTE_SH002, false, true],
-  [17.0, MOTE_SH003, false, false],
+  [16.5, MOTE_SH002, true,  true],
   [18.0, MOTE_SH002, true,  false],
-  [20.0, MOTE_SH002, false, false],
 ];
 const CYCLE_SECONDS = 28_000;
 

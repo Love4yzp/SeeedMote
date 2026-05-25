@@ -52,20 +52,19 @@ async def _emit_status(gw_id: str, status: dict) -> None:
 _MOCK_GW = "441bf6804166"
 _MOCK_MACS = ["f0e3912cec19", "f0e3912cec20", "f0e3912cec21"]
 
+# Real mote frames always carry moving=True; put-back is inferred by consumers
+# when no recent pickup pulse arrives.
 # (delay_s, mac_index, moving, vibration)
 _MOCK_TIMELINE: list[tuple[float, int, bool, bool]] = [
-    (0.0,  0, False, True),
+    (0.0,  0, True,  True),
     (0.5,  0, True,  False),
     (4.0,  0, True,  True),
-    (6.0,  0, False, False),
-    (8.0,  1, False, True),
+    (8.0,  1, True,  True),
     (8.5,  1, True,  False),
-    (12.0, 2, False, True),
+    (12.0, 2, True,  True),
     (12.5, 2, True,  False),
     (16.0, 1, True,  True),
-    (18.0, 1, False, False),
     (22.0, 2, True,  True),
-    (26.0, 2, False, False),
 ]
 _MOCK_CYCLE = 30.0
 
