@@ -4,153 +4,77 @@
 
 ## 它是什么
 
-Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 多网关聚合 + 出口契约,衍生具体方案(冷链、急停、接触、资产追踪 …),通过 [SenseCraft Solution 平台](https://github.com/suharvest/app_collaboration) 投放集成商。
+Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 网关聚合 + MQTT 出口,衍生具体方案(冷链、急停、接触、资产追踪 …),通过 [SenseCraft Solution 平台](https://github.com/suharvest/app_collaboration) 投放集成商。
 
 ## 两盒一契约
 
 ```
  ┌────────────────────────┐  BLE adv   ┌────────────────────────┐  MQTT   ┌──────────────┐
  │  Mote                  │ ─────────▶ │  Gateway               │ ──────▶ │ Consumer     │
- │  XIAO nRF52840 Sense   │            │  XIAO ESP32-S3         │         │  HA / MQTT / │
- │  Zephyr (NCS v2.9.2)   │            │  ESP-IDF (5.2.2)       │         │  自有后端    │
- │  via west              │            │  via PlatformIO        │         │  消费侧去重   │
- │  System OFF ≤ 5 µA*    │            │  常电、stateless 转发  │         │              │
+ │  XIAO nRF52840 Sense   │  BTHome v2 │  XIAO ESP32-S3         │         │  HA / MQTT / │
+ │  Zephyr (NCS)          │            │  ESPHome               │         │  自有后端    │
+ │  via west              │            │  原生 BTHome 支持       │         │  消费侧去重   │
+ │  System OFF ≤ 5 µA*    │            │  WiFi → MQTT           │         │              │
  └────────────────────────┘            └────────────────────────┘         └──────────────┘
                                                                             * 业务接入后
 ```
 
-默认空中格式是 **BTHome v2 BLE advertising**。Mote 不建立长连接,通过
-Service Data UUID `0xFCD2` 广播标准 `packet id` / `moving` /
-`vibration` / `count` 对象。没有业务用途的历史私有字段不进入默认
-air format。
+默认空中格式是 **BTHome v2 BLE advertising**。Mote 不建立长连接,通过 Service Data UUID `0xFCD2` 广播标准 `packet id` / `moving` / `vibration` / `count` 对象。
+
+**Gateway 是 ESPHome**:原生支持 BTHome v2 passive scan、WiFi STA、MQTT 出口、OTA。无需自研 C 固件。配置即文档:`gateway/esphome.yaml`。
 
 ## 事件型(event-driven),不是数据型 IoT
 
-整个系统是**事件型**。这条原则约束所有契约和实现:
+整个系统是**事件型**。这条原则约束所有实现:
 
 | 维度 | 数据型 IoT(我们不是) | **SeeedMote(事件型)** |
 |---|---|---|
 | 上行触发 | 周期采样 / 心跳 | 业务条件触发才广播 |
 | Payload 性质 | 数值时序 | 业务语义对象(moving / vibration / count) |
 | Mote 静默期 | 异常("丢数据") | 正常("没事发生") |
-| Gateway 角色 | 数据采集汇聚 | 事件中继 + 去噪(stateless) |
+| Gateway 角色 | 数据采集汇聚 | 事件中继(stateless) |
 | Broker | 时序数据传输 | 事件总线(不持久化) |
-| 消费侧 | 时序图 / 阈值告警 / 数据库 | 事件流 / 状态机派生 / 业务响应 |
-| **不要的东西** | n/a | raw 采样缓存 / 周期 telemetry counter / 心跳 topic |
+| 消费侧 | 时序图 / 阈值告警 | 事件流 / 状态机派生 / 业务响应 |
+| **不要的东西** | n/a | raw 采样缓存 / 周期 telemetry / 心跳 topic |
 
-落地到契约(全部 v1):
+**如果你发现自己在加周期发布、心跳计数器、raw 缓存,你走错路了。**
 
-- `contracts/airframe.yaml`:`count` 字段定义为"每业务事件递增一次,**不是 heartbeat**"
-- `contracts/mqtt-uplink.yaml`:`event` 一帧一发,`status` 仅在 transition 发,**无周期 telemetry**
-- `contracts/mqtt-downlink.yaml`:`cmd` 仅 JSON,gateway 是 stateless 中继
-
-**如果你发现自己在加周期发布、心跳计数器、raw 缓存,你走错路了** —— 回到契约定义,把事件挑出来,把"持续的状态"留给消费侧从事件派生。
-
-## 链路(4 段,没有第五段)
+## 链路(4 段)
 
 ```
  ┌────────┐  BLE adv  ┌─────────┐  MQTT pub  ┌────────┐  MQTT sub  ┌─────────┐
  │  Mote  │──事件────▶│ Gateway │──事件─────▶│ Broker │──事件─────▶│   App   │
- │ (电池) │  BTHome   │ ESP32S3 │  event/    │(外部)  │  +/event   │ 消费侧  │
- └────────┘           └─────────┘  status    └────────┘            └─────────┘
-   触发源              中继 + 去噪              总线                 消费 + 展示
+ │ (电池) │  BTHome   │ ESP32S3 │            │(外部)  │            │ 消费侧  │
+ └────────┘           └─────────┘            └────────┘            └─────────┘
+   触发源              ESPHome 中继             总线                 消费 + 展示
 ```
 
-消费侧形态由方案决定 —— Home Assistant 是其中一条路径(见 `solutions/`,后续提交),不是产品定位本身。
+## 工具链决策(已锁定)
 
-## 三个独立维度
-
-| 维度 | 内容 | 决定 |
+| 对象 | 工具链 | 理由 |
 |---|---|---|
-| **Role**(职能)| `mote` / `gateway` / 未来的 `bridge` / `edge_ai` 等 | 项目做什么 |
-| **Function**(功能)| `motion` / `basic` / 未来的 `env` / `button` 等 | 业务子类型 |
-| **Chip**(芯片家族)| `nrf52840` / `esp32s3` / `esp32c6` / `rp2040` 等 | 跑在什么硬件上 |
+| Mote (nRF52840) | west + NCS | NCS 是 nRF 系列官方现代 SDK;PIO 的 Zephyr 卡在 2.7.1(2021),实测不可用 |
+| Gateway (ESP32-S3) | ESPHome | 原生 BTHome v2 支持,WiFi+MQTT+OTA 内置,无需维护 C 固件 |
 
-Project 名格式:`<role>_<function>_<chip>`(如 `mote_motion_nrf52840`、`gateway_basic_esp32s3`)。
-**工具链由 chip 决定,与 role 无关**。
+旧 ESP-IDF C gateway 已删除(见 git log 历史)。
 
-## 双轨工具链(实测后的决策)
+## 开源生态兼容性
 
-最初的设想是"PIO 唯一入口"。**实测后被推翻**:
-
-| 期望 | 实测结果 |
-|---|---|
-| PIO 管 ESP32 / ESP-IDF | ✅ 完美:5.2.2 现代版本,modern API 完整,板 JSON 内置 |
-| PIO 管 nRF52 / Zephyr | ❌ 失败:PIO 装的是 Zephyr **2.7.1(2021)**、`<zephyr.h>` 老 API、PIO 框架脚本多个 bug、无 XIAO BLE 板 |
-
-**规则**(2026-05 实测后定):
-
-| 芯片家族 | 工具链 |
-|---|---|
-| `nrf52*` | **west + nRF Connect SDK (NCS v2.9.2)** |
-| `esp32*` | **PlatformIO + ESP-IDF (5.2.2)** |
-| `rp2040` / `stm32*` / 未来其他 | **未定,出现时人决策** |
-
-**关键认知**:
-- 一个 `mote_*` 不强制是 nRF52,它**可能**未来出现在 ESP32-C6 上(那就走 PIO)
-- 一个 `gateway_*` 不强制是 ESP32,它**可能**未来是低功耗 BLE 中继 on nRF52(那就走 west)
-- Role 是项目描述,**chip 才是工具链开关**
-- AI 看 chip 后缀决定工具链,**不允许自选**
-
-## 五条铁律
-
-| # | 铁律 | 为什么 |
-|---|------|--------|
-| 1 | **`projects/` 平铺,每个 project 独立可编** | 单 AI 任务只看一个目录,孤岛结构防漂移 |
-| 2 | **工具链由 chip 后缀决定,与 role 无关** | `_nrf52*` = west,`_esp32*` = PIO。role 只是命名描述 |
-| 3 | **无 `lib/` 共享层** | 第三个 project 才有数据点判断真复用 |
-| 4 | **role / chip / function 是三个独立维度** | 不建 `mote/` `gateway/` 顶层目录,组合在命名里表达 |
-| 5 | **`contracts/` 改动是人决策、commit 拆三段** | 跨设备契约;AI 不单边改,必须 contract → mote → gateway 三 commit |
-
-## 与 v2.0 仓库的关系
-
-- v2.0:`~/Seeed/dev/embedded/`,单 app + framework/bsp 分层,**已是 west + PIO 双构建** —— 但混在一个仓库里,AI 没纪律
-- v2(本仓库):`~/Seeed/dev/seeedmote-v2/`,平铺 `projects/`,**双轨明确分离**,每个 project 单一工具链绑死
-- v2.0 业务代码作为参考保留,**不迁移** —— 等本骨架的 AI 流程跑通,再按本仓库纪律重写
-
-## 与 SenseCraft Solution 平台的关系
-
-- 平台仓库:[`suharvest/app_collaboration`](https://github.com/suharvest/app_collaboration)。已有 18 个方案、Desktop App、OTA、CLI
-- SeeedMote v2 **不是方案集**,**是平台的一个 candidate**。业务跑通后以 `seeedmote_ble_node/` 进 `solutions/`
-- 接入过程预期暴露平台三个缺口,可作为反哺:
-  1. MCU/电池类 deployer(`nrf52_uf2`、`ble_oob_provision`)
-  2. 节点能力契约(`capability` schema)
-  3. `component` 类型方案(节点固件可被多个具体方案 `composes:`)
-
-## 演进路径(粗粒度,不预先建)
-
-```
- Now              第 1 个真业务      第 2 个 project      第 3 个 project        反哺平台
- ────            ────────────────  ────────────────    ────────────────       ──────────
- 骨架建成    →   mote 加 BLE adv  → gateway 加 BLE   →  抽 contracts/     →   提交 SenseCraft
-                + 一个传感器         scan + MQTT 出口     airframe.yaml         Solution
-```
-
-每一步等上一步业务跑通再走,**不预先抽象**。
+- **Home Assistant**: ESPHome 原生集成,BTHome v2 设备自动发现
+- **任意 MQTT broker**: Mosquitto / EMQX / HiveMQ / CloudMQTT 均可
+- **自有后端**: 订阅 MQTT topic,按 `(mote_mac, count)` 去重即可消费事件
 
 ## 当前显式不做的事
 
 | 项 | 状态 |
 |---|------|
-| OTA / MCUBoot / mcumgr | v2.0 显式放弃,v2.1 由人决策 |
-| 多 app 共存 / framework/bsp 分层 | v2.0 过早抽象,本骨架反向回归"重复 > 抽象" |
-| 共享 `lib/` 层 | 第三个 project 才考虑 |
-| `tools/codegen` / `tools/scaffold` | 没有第二个 mote 形态前不做 |
+| OTA / MCUBoot (mote) | v2.0 显式放弃,v2.1 由人决策 |
+| 多 app 共存 / framework/bsp 分层 | 本骨架反向回归"重复 > 抽象" |
 | 端到端加密 / 多租户 / ACL | v2.1+ |
 | 网关间协调 / 选主 / 集群去重 | 显式拒绝,消费侧按 BTHome `count` + 设备地址去重 |
-| **周期 telemetry / raw 数据流上报** | **显式拒绝** —— 事件型系统不收集"无事件期"的数据,运维信号通过 cmd 触发 status 重发,不走心跳 |
+| **周期 telemetry / raw 数据流上报** | **显式拒绝** —— 事件型系统 |
 
-## 实测验证(2026-05)
+## 与 SenseCraft Solution 平台的关系
 
-| 项 | 状态 | 详情 |
-|---|---|---|
-| Gateway PIO + ESP-IDF 编译 | ✅ 通过 | 1.0 MB firmware.bin,65.4% flash(Wi-Fi+NimBLE+MQTT+lwIP);需 `set(PROJECT_VER ...)` 绕 git_describe |
-| Gateway BLE observer + JSON 出口 | ✅ 实装 | NimBLE passive scan;解码 BTHome v2 Service Data;UART 一行一帧 |
-| Gateway Wi-Fi STA + MQTT 出口 | ✅ 实装 | topic `mote/v1/{gw_id}/{event\|status\|cmd}`;status retained + LWT;cmd JSON-only(见 `contracts/mqtt-downlink.yaml`) |
-| Mote west + NCS 编译 | ⏳ 结构对齐 v2.0 已工作样式 | 实际 `west update` (~4 GB) 留待业务开发时触发 |
-| Mote bring-up step 2 (BLE adv) | ✅ 实装(待板上验证) | BTHome v2 non-connectable adv;step 3+ 接 IMU |
-| Mote 事件型语义对齐 | ⚠️ 待重写 | 当前 `ctr` 每 200ms 递增 + pickup burst 每次递增,违反 airframe.yaml 的"事件型 counter"定义;Step 2 重写中 |
-| Contract `contracts/airframe.yaml` v1 | ✅ 落地 | SeeedMote BTHome 对象映射,无加密、需部署前补认证 / bindkey |
-| Contract `contracts/mqtt-uplink.yaml` v1 | ✅ 落地 | event + status,无 raw 无 telemetry counter |
-| Contract `contracts/mqtt-downlink.yaml` v1 | ✅ 落地 | JSON-only cmd,裸字符串明示拒绝 |
-| PIO + Zephyr(预想路线) | ❌ 推翻 | Zephyr 2.7.1 太旧、bug 多、无 XIAO 板 —— 死路 |
+- 平台仓库:[`suharvest/app_collaboration`](https://github.com/suharvest/app_collaboration)
+- SeeedMote v2 **不是方案集**,**是平台的一个 candidate**。业务跑通后以 `seeedmote_ble_node/` 进 `solutions/`

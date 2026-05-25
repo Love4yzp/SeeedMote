@@ -1,4 +1,7 @@
-# PlatformIO
+# ESPHome secrets (contains WiFi/MQTT credentials)
+gateway/secrets.yaml
+
+# PlatformIO (historical, no longer used)
 .pio/
 .pioenvs/
 .piolibdeps/
