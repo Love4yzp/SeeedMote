@@ -55,3 +55,11 @@ __pycache__/
 # Node / web tooling
 node_modules/
 dist/
+
+# Playwright MCP tooling
+.playwright-mcp/
+
+# Screenshots / generated images
+*.png
+*.jpg
+*.jpeg
