@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140" width="240" height="140">
+  <rect width="240" height="140" fill="#ecfdf5" rx="12"/>
+  <path d="M28 95 Q38 58 78 58 L132 58 Q156 58 172 78 L208 92 Q220 94 220 108 L220 113 Q220 118 215 118 L38 118 Q28 118 28 108 Z"
+        fill="#374151" stroke="#065f46" stroke-width="3"/>
+  <path d="M78 58 L78 95 M102 62 L102 95 M126 58 L126 95"
+        stroke="#10b981" stroke-width="2" fill="none"/>
+  <path d="M30 110 L218 110" stroke="#065f46" stroke-width="3" stroke-dasharray="4 3"/>
+  <circle cx="185" cy="100" r="6" fill="#10b981"/>
+  <text x="120" y="135" text-anchor="middle" font-family="ui-sans-serif" font-size="12" fill="#064e3b">SH-003 · Trail Pro</text>
+</svg>

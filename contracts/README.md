@@ -37,7 +37,7 @@ the same commit as a downstream code change — split into:
 - `contract:` — change the schema
 - `mote:` / `gateway:` — implement on each side, referencing the contract version
 
-See `../docs/for-ai-agents.md` for the full operating manual.
+See the root `AGENTS.md` for the full operating manual.
 
 ## Versioning
 

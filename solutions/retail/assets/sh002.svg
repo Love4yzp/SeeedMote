@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140" width="240" height="140">
+  <rect width="240" height="140" fill="#f5f5f4" rx="12"/>
+  <path d="M30 95 Q40 65 75 65 L135 65 Q155 65 170 80 L205 95 Q215 96 215 108 L215 113 Q215 118 210 118 L40 118 Q30 118 30 108 Z"
+        fill="#1c1917" stroke="#78350f" stroke-width="3"/>
+  <path d="M75 65 L75 95 M100 70 L100 95 M125 65 L125 95"
+        stroke="#a16207" stroke-width="2" fill="none"/>
+  <circle cx="180" cy="103" r="6" fill="#78350f"/>
+  <text x="120" y="135" text-anchor="middle" font-family="ui-sans-serif" font-size="12" fill="#44403c">SH-002 · City Walk</text>
+</svg>

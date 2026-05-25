@@ -86,4 +86,4 @@ GPIO21,active-low(写 0 点亮,写 1 熄灭)。
 
 ## 下一步会做的事(不在本骨架范围)
 
-按根 `docs/for-ai-agents.md` 操作手册接业务任务。
+按根 `AGENTS.md` 操作手册接业务任务。

@@ -1,6 +1,6 @@
 # Architecture — SeeedMote v2
 
-一页总览。决策细节见 git log + `for-ai-agents.md`。
+一页总览。决策细节见 git log + 根 `AGENTS.md`。
 
 ## 它是什么
 
