@@ -49,13 +49,14 @@ esp32_ble_tracker:
   on_ble_advertise:
     then:
       - lambda: |-
-          // Filter 1: any "SEEED" / "SEEED-XXYYZZ" name. Cheap reject for the
-          // 99% of adv packets from other devices before we touch service data.
-          const std::string &name = x.get_name();
-          if (name.rfind("SEEED", 0) != 0) return;
-
+          // Filter on the BTHome v2 service UUID only. Don't gate on
+          // x.get_name(): under passive scanning (`active: false`) and a
+          // mote firmware that doesn't put the name in ADV_IND, get_name()
+          // returns an empty string and every packet would be silently
+          // dropped. The UUID 0xFCD2 is BTHome v2 generic; the parser below
+          // requires both packet_id (0x00) and moving (0x22) to be present,
+          // which narrows further to our own mote's adv shape in practice.
           for (auto &sd : x.get_service_datas()) {
-            // Filter 2: BTHome v2 service UUID. Authoritative per v4 §7.
             if (sd.uuid != esphome::esp32_ble_tracker::ESPBTUUID::from_uint16(0xFCD2)) continue;
             if (sd.data.size() < 1) continue;
             if (sd.data[0] != 0x44) continue;  // device_info: BTHome v2, unencrypted, trigger-based

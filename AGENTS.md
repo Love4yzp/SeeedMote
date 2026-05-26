@@ -125,9 +125,9 @@ esphome run gateway/esphome.yaml
 
 ### 5.3 Gateway 过滤策略
 
-Gateway 用 **BLE Local Name 前缀 `"SEEED"` + Service Data UUID `0xFCD2`** 双重过滤识别 Mote。
-- Name 前缀匹配兼容当前 `"SEEED"` 和 Phase 2 后的 `"SEEED-XXYYZZ"`(FICR 派生)
-- UUID 是权威过滤;名字仅用于早期 reject
+Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BLE Local Name。
+- ESPHome `esp32_ble_tracker` 用 passive scan(`active: false`),只读 ADV_IND 的 payload,不发 SCAN_REQ。若 mote 没把 Complete Local Name 塞进 ADV payload(early WIP / 老固件就是如此),`x.get_name()` 返回空,任何 name 过滤都会静默吃光所有帧
+- Lambda parser 再要求 BTHome `packet_id` (0x00) + `moving` (0x22) 都出现才发 MQTT,等价于"只接 Mote 形状的 BTHome 帧"
 - **不依赖 MAC 地址** —— 同一 gateway 可同时听多个 mote
 
 ### 5.4 Gateway 不使用 `bthome_receiver` 外部组件
