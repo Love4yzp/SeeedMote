@@ -4,12 +4,11 @@
 
 ```
 projects/<any role>_*_nrf52*/     →  west + nRF Connect SDK (NCS v2.9.2)
-projects/<any role>_*_esp32*/     →  PlatformIO + ESP-IDF (5.2.2)
+gateway/                           →  ESPHome YAML
 projects/<any role>_*_rp2040/     →  未定,问人
 ```
 
-Project 名格式:`<role>_<function>_<chip>`(例 `mote_motion_nrf52840`、`gateway_basic_esp32s3`)。
-**编译看 `_<chip>` 后缀**,role 只是命名描述。**不要让 AI 自己选轨**。
+Mote 是 west + NCS;Gateway 是 ESPHome YAML。**不要让 AI 自己选轨**。
 
 ---
 
@@ -69,54 +68,36 @@ JLinkRTTViewer
 
 ---
 
-## Gateway 侧 · PlatformIO + ESP-IDF
+## Gateway 侧 · ESPHome YAML
 
 ### 一次性安装
 
 ```bash
-# PIO Core(macOS)
-brew install platformio
-# 或
-uv tool install platformio --with pyyaml --with west
-
-pio --version    # 至少 6.x
+pip install esphome
+esphome version
 ```
-
-PIO 会按需自动下载 `espressif32@6.7.0` platform 包 + ESP-IDF 5.2.2 工具链(首次 ~1 GB)。
 
 ### 编译 / 烧录 / 监视
 
 ```bash
 # 从仓库根
-pio run -d projects/gateway_basic_esp32s3                  # 编译
-pio run -d projects/gateway_basic_esp32s3 -t upload        # 烧录 (USB CDC)
-pio device monitor -d projects/gateway_basic_esp32s3       # 串口监视
-pio run -d projects/gateway_basic_esp32s3 -t clean         # 清产物
-
-# 完全清掉缓存
-rm -rf projects/gateway_basic_esp32s3/.pio
-```
-
-### 产物位置
-
-```
-projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
-├── firmware.elf       # 调试符号
-├── firmware.bin       # 烧录用
-└── partitions.bin
+cp gateway/secrets.yaml.example gateway/secrets.yaml       # 填 WiFi/MQTT
+esphome compile gateway/esphome.yaml                       # 编译
+esphome run gateway/esphome.yaml                           # 编译 + 烧录 + 日志
+esphome logs gateway/esphome.yaml                          # 只看日志
 ```
 
 ### 烧录方式
 
-- **首选**:USB CDC,无需按 BOOT 键,PIO 自动 reset
-- **首次烧录卡住**:按住 BOOT + 短按 RESET 进入下载模式,再上传
+- **首选**:USB CDC,ESPHome 自动 reset
+- **首次烧录卡住**:按住 BOOT + 短按 RESET 进入下载模式,再运行 `esphome run`
 
-### 不要做的事(PIO 侧)
+### 不要做的事(Gateway 侧)
 
-- ❌ 在 gateway project 里跑 `west build` —— 没 west.yml
-- ❌ `idf.py build` —— ESP-IDF 由 PIO 调度,不暴露原生入口
-- ❌ 直接调 `cmake` / `ninja` —— PIO 自己管
-- ❌ 改 `espressif32@6.7.0` 平台版本 —— 架构级,问人
+- ❌ 在 `gateway/` 写 C / CMake / PlatformIO
+- ❌ 在 gateway 里跑 `west build`
+- ❌ 加 BLE Client 做下行
+- ❌ 使用 `bthome_receiver` 外部组件
 
 ---
 
@@ -137,30 +118,30 @@ projects/gateway_basic_esp32s3/.pio/build/gateway_basic_esp32s3/
 
 | 任务 | Mote | Gateway |
 |---|---|---|
-| 安装工具链 | `nrfutil install toolchain-manager` + NCS | `brew install platformio` |
-| 拉源码 | NCS 已在 `~/ncs/v2.9.2/`,无需 bootstrap | (PIO 按需拉) |
-| 编译 | `ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2` | `pio run -d projects/<name>` |
-| 烧录 | `cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/`(上电 5 秒内自动出现) | `pio run -d projects/<name> -t upload` |
-| 监视 | `tio /dev/cu.usbmodem*`(USB CDC);`JLinkRTTViewer`(SWD) | `pio device monitor -d projects/<name>` |
-| 清产物 | `west build -d build_uf2 -t pristine` | `rm -rf projects/<name>/.pio` |
+| 安装工具链 | `nrfutil install toolchain-manager` + NCS | `pip install esphome` |
+| 拉源码 | NCS 已在 `~/ncs/v2.9.2/`,无需 bootstrap | ESPHome 按需拉平台包 |
+| 编译 | `make build` | `esphome compile gateway/esphome.yaml` |
+| 烧录 | `make flash` | `esphome run gateway/esphome.yaml` |
+| 监视 | `make monitor`(DEBUG=1 USB CDC);`JLinkRTTViewer`(RTT/SWD) | `esphome logs gateway/esphome.yaml` |
+| 清产物 | `make clean` | 删除 ESPHome 本地 build 缓存 |
 
 ---
 
 ## 端到端验证(mote ↔ gateway)
 
-烧录两块板后,gateway 串口应看到 mote 的 BTHome motion 事件 JSON:
+烧录两块板后,MQTT broker 应看到 gateway 发布的 SeeedMote 事件:
 
 ```
-{"ts":8868528,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":true,"vibration":false,"pid":169,"ctr":425}
-{"ts":8872543,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":true,"vibration":true,"pid":173,"ctr":429}
-{"ts":8906822,"gw_id":"441bf6804166","mote_mac":"f0e3912cec19","rssi":-98,"moving":false,"vibration":false,"pid":207,"ctr":463}
+seeedmote/f0e3912cec19/online {"rssi":-74,"gw":"seeedmote-gateway"}
+seeedmote/f0e3912cec19/event  {"packet_id":42,"rssi":-68,"gw":"seeedmote-gateway"}
 ```
 
 判断好坏:
 
 | 现象 | 结论 |
 |---|---|
-| 看到 `adv heard` 但没 JSON | BTHome Service Data 不匹配 v1 映射(查 `contracts/airframe.yaml`) |
-| JSON `moving` / `vibration` 随动作变化 | mote 状态机和 BTHome payload 更新正常 |
-| JSON `pid` / `ctr` 重复出现 | 正常:同一 payload 可能被重复广播;BTHome 接收端可用 `pid`,业务消费侧可用 `(mote_mac, ctr)` 去重 |
-| 完全没有 `adv heard` | mote 没在广播,看 RTT(`JLinkRTTViewer`)确认 `adv started` |
+| 看到 BLE adv 但没 MQTT | BTHome Service Data 不含 `packet_id` + `moving`,查 `AGENTS.md §5` |
+| `/online` 在 boot 后出现 | boot heartbeat 正常 |
+| `/event` 随动作出现 | IMU WAKE_UP + BTHome payload 正常 |
+| 同一 `packet_id` 被多个 gateway 上报 | 正常:consumer 用 `(mote_mac, packet_id)` 去重 |
+| 完全没有 BLE adv | mote 静默可能正常;boot 或摇动后再看 RTT(`JLinkRTTViewer`) |

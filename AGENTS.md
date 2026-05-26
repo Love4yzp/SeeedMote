@@ -109,7 +109,7 @@ esphome run gateway/esphome.yaml
 | packet_id | 0x00 | uint8 | multi-gateway dedup key,暴露 MQTT |
 | moving | 0x22 | uint8 (bool) | `1`=motion event / `0`=boot heartbeat,**gateway 用它分流 topic** |
 
-> **历史**:`vibration` (0x2C) + `count` (0x3E) 在 v4 设计中删除(Stage 2 后 IMU 硬件已过滤 noise,PICKUP/MOVING 二分失意义;`count` 角色被 `packet_id` + consumer 端 dedup 接管)。**Phase 1 mote 固件落地前**,gateway 解析器对这两个 object_id 保留 tolerate 路径(`gateway/esphome.yaml` lambda 走对象 id+长度循环,不依赖固定 offset)。
+> **历史**:`vibration` (0x2C) + `count` (0x3E) 在 v4 设计中删除(Stage 2 后 IMU 硬件已过滤 noise,PICKUP/MOVING 二分失意义;`count` 角色被 `packet_id` + consumer 端 dedup 接管)。gateway 解析器对这两个旧 object_id 保留 tolerate 路径(`gateway/esphome.yaml` lambda 走对象 id+长度循环,不依赖固定 offset),方便老固件过渡。
 
 ### 5.2 MQTT topic(gateway 上行)
 
@@ -141,7 +141,7 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 
 ### 5.5 事件型原则
 
-数据平面仍只在 IMU WAKE_UP 触发时发新 BTHome 帧。控制平面允许 mote boot 后发一帧 `moving=0` 作 heartbeat(Phase 2 加),以及 event/boot 后开 30s connectable window(Phase 3 加)。
+数据平面仍只在 IMU WAKE_UP 触发时发新 BTHome 帧。控制平面允许 mote boot 后发一帧 `moving=0` 作 heartbeat,以及 event/boot 后开 30s connectable window。
 
 ---
 
@@ -164,6 +164,8 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 | 在 mote/zephyr/ 子目录放 prj.conf | PIO Zephyr 期望那里它自己管 | mote 走 west 后,`prj.conf` 在 project 根目录 |
 | 在 prj.conf 注释掉 USB Kconfig 仍编出 USB 固件 | `boards/seeed/xiao_ble/xiao_ble_nrf52840_sense_defconfig` 硬塞 `CONFIG_USB_DEVICE_STACK=y`,且 board DTS 把 chosen=usb_cdc_acm_uart | release 构建里必须显式 `CONFIG_USB_DEVICE_STACK=n` + `CONSOLE=n` + `UART_CONSOLE=n` + `SERIAL=n` + `LOG_BACKEND_UART=n`;debug 再用 overlay 一次性翻回 |
 | `CONFIG_PM=y` 在 nRF52840 + NCS v2.9.2 被静默丢弃 | `PM depends on HAS_PM`,但 nRF52 SoC 树没 `select HAS_PM`(只 nRF54H 有);.config 既不为 y 也不为 n | 不写 `CONFIG_PM=y`(idle thread 默认 WFI 就够 System ON sleep);`CONFIG_PM_DEVICE=y` 仍独立有效 |
+| LSM6DSL Stage 2 自管 INT1 时没有事件 | `CONFIG_LSM6DSL_TRIGGER_GLOBAL_THREAD=y` 会让 Zephyr 驱动把 INT1 配成 data-ready 路由,和 WAKE_UP/INACTIVITY 抢同一根 `irq-gpios` | 删掉 trigger Kconfig,应用层用 `I2C_DT_SPEC_GET(IMU_NODE)` 直接写 WAKE_UP 寄存器,自己挂 `GPIO_DT_SPEC_GET(IMU_NODE, irq_gpios)` 回调 |
+| `bt_set_name("SEEED-xxxxxx")` 编译/运行不生效 | Zephyr 默认设备名是静态 Kconfig 字符串 | `prj.conf` 加 `CONFIG_BT_DEVICE_NAME_DYNAMIC=y`;adv data 的 Complete Local Name 仍要用运行时 `bt_name` 更新 `data_len` |
 
 新行格式:`坑 | 触发条件 | 修复`。**追加到表尾,不要重排或删行**。
 

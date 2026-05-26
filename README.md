@@ -14,9 +14,9 @@
 
 端到端骨架打通并已验证(2026-05):
 
-- **Mote**: LSM6DS3TR-C data-ready interrupt 驱动采样,状态机分类事件(MOVING / PICK_UP)并广播 BTHome v2 Service Data(UUID=`0xFCD2`,对象:`packet id / moving / vibration / count`)。`count` 严格按业务事件递增(burst 重发复用同一 count),`packet_id` 用于 BLE 链路去重,无周期 heartbeat。USB CDC 日志。
-- **Gateway**: ESPHome 原生支持 BTHome v2 passive scan,WiFi STA + MQTT broker 出口,OTA 内置。配置在 `gateway/esphome.yaml`,无需自研 C 固件。
-- **架构原则**: **事件型**(event-driven),不是数据型 IoT。Mote 触发才广播、gateway 中继、broker 不持久化、消费侧 `(mote_mac, count)` 去重。**没有周期 telemetry、没有 raw 数据流**。
+- **Mote**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动。静默时不广播;boot 发一段 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。BTHome v2 Service Data UUID=`0xFCD2`,对象精简为 `packet_id / moving`。
+- **Gateway**: ESPHome raw `esp32_ble_tracker.on_ble_advertise` passive scan,按 Service Data UUID `0xFCD2` 过滤,解析 `packet_id + moving`,发布 MQTT `/event` 或 `/online`。配置在 `gateway/esphome.yaml`,无需自研 C 固件。
+- **架构原则**: **事件型**(event-driven),不是数据型 IoT。Mote 业务动作才发事件、gateway 中继、broker 不持久化、消费侧 `(mote_mac, packet_id)` 去重。控制平面允许 boot heartbeat 和 30s Web BT 配置窗口。
 - **未做**: System OFF 低功耗、消息认证 / allowlist、battery 字段(留 v2)。
 
 ## Quick start
@@ -57,7 +57,7 @@ seeedmote-v2/
 1. **Mote 固件**: 只改 `mote/`，走 `make build / flash`
 2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `esphome run`
 3. **BTHome 是契约**: 对象映射见 `AGENTS.md §5`，mote 和 gateway 必须同步
-4. **事件型**: 无周期 telemetry，无 raw 数据流，`count` 不是 heartbeat
+4. **事件型**: 无周期 telemetry，无 raw 数据流，boot heartbeat 仅用于上线/配置窗口发现
 
 ## For AI agents
 

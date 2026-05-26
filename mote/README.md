@@ -4,7 +4,7 @@
 **Function**: `motion` — IMU 触发的动作检测
 **Chip**: nRF52840 — west + NCS 工具链
 **Board**: Seeed XIAO nRF52840 Sense (`xiao_ble/nrf52840/sense`)
-**Status**: LSM6DS3TR-C IMU 实时采样,状态机驱动 non-connectable BTHome v2 Service Data 广播(UUID=`0xFCD2`,对象映射见 `AGENTS.md §5`),USB CDC 日志(product=`seeedmote-motion`,VID=0x2886,PID=0x0045)。
+**Status**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动,静默时不广播;boot 发 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。Release 默认 RTT 日志,`DEBUG=1` 打开 USB CDC。
 
 ## BTHome 广播对象
 
@@ -12,10 +12,8 @@
 |--------|-----------|------|
 | packet_id | 0x00 | uint8 |
 | moving | 0x22 | uint8 (bool) |
-| vibration | 0x2C | uint8 (bool) |
-| count | 0x3E | uint32 |
 
-`count` 每业务事件递增一次,不是 heartbeat。`packet_id` 用于 BLE 链路去重。
+`moving=1` 表示动作事件,`moving=0` 表示 boot heartbeat。`packet_id` 是 multi-gateway consumer dedup key;同一事件 burst 内复用同一 payload。
 
 ## IMU 轴向(经验测出,LSM6DS3TR-C)
 
@@ -34,8 +32,7 @@ XIAO Sense 上 LSM6DS3TR-C 的 chip 坐标系相对板子物理方向(**平放 U
 
 参考姿态静态读数:`ax ≈ 0, ay ≈ 0, az ≈ +1000 mg`,L1 magnitude ≈ 1000 mg。
 
-**算法影响**:当前 motion 算法用 L1 范数,理论上方向无关;实际 L1 在静止状态会随姿态在 1000-1732 mg 之间波动,**任意 45° 斜挂时 L1 ≈ 1414 mg,仍在 pickup 阈值 1500 mg 之下**,不会误判。
-后续 Stage 2 切到芯片硬件 slope(高通后)检测,完全 orientation-invariant,这张表只用于调试时解读 raw 读数。
+**算法影响**:当前固件使用芯片硬件 WAKE_UP slope 检测,高通后方向无关。这张表只用于调试时解读 raw 读数或后续重新启用采样路径。
 
 ## 第一次 bootstrap(一次性,~4 GB 下载)
 
