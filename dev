@@ -22,6 +22,7 @@ DEFAULT_BOARD = "xiao_ble/nrf52840/sense"
 DEFAULT_BUILD_DIR = "build_uf2"
 DEFAULT_VOLUME = "/Volumes/XIAO-SENSE"
 DEFAULT_PORT_GLOB = "/dev/cu.usbmodem*"
+PLATFORMIO_ESPTOOL_PACKAGE = Path.home() / ".platformio" / "packages" / "tool-esptoolpy"
 
 
 def rel(path: Path | str) -> str:
@@ -55,6 +56,47 @@ def run_command(
     if env:
         merged_env.update(env)
     subprocess.run(command, cwd=cwd, env=merged_env, check=True)
+
+
+def run_command_for_gateway(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+    proc = subprocess.run(command, cwd=cwd, env=merged_env, text=True, capture_output=True)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, command, proc.stdout, proc.stderr)
+
+
+def is_esptoolpy_corruption_error(error_text: str | None) -> bool:
+    if not error_text:
+        return False
+    return (
+        "tool-esptoolpy" in error_text
+        and "does not appear to be a Python project" in error_text
+    )
+
+
+def repair_esptoolpy_if_needed(error: subprocess.CalledProcessError) -> bool:
+    stderr = error.stderr or ""
+    stdout = error.stdout or ""
+    combined = f"{stdout}\n{stderr}"
+    if not is_esptoolpy_corruption_error(combined):
+        return False
+
+    if PLATFORMIO_ESPTOOL_PACKAGE.exists():
+        print(f"Detected broken {PLATFORMIO_ESPTOOL_PACKAGE}; deleting and retrying...")
+        try:
+            shutil.rmtree(PLATFORMIO_ESPTOOL_PACKAGE)
+        except OSError as exc:
+            print(f"Unable to remove {PLATFORMIO_ESPTOOL_PACKAGE}: {exc}")
+            return False
+    else:
+        print(f"{PLATFORMIO_ESPTOOL_PACKAGE} is missing; retrying download.")
+    return True
 
 
 def ncs_env(ncs_version: str) -> dict[str, str]:
@@ -190,7 +232,17 @@ def mote_run(args: argparse.Namespace) -> None:
 
 def gateway_command(args: argparse.Namespace, action: str) -> None:
     command = ["esphome", action, rel(GATEWAY_YAML)]
-    run_command(command, dry_run=args.dry_run)
+    if args.dry_run:
+        run_command(command, dry_run=True)
+        return
+
+    try:
+        run_command_for_gateway(command, cwd=ROOT)
+    except subprocess.CalledProcessError as exc:
+        if repair_esptoolpy_if_needed(exc):
+            run_command_for_gateway(command, cwd=ROOT)
+            return
+        raise
 
 
 def app_command(args: argparse.Namespace, target: str) -> None:
@@ -272,6 +324,7 @@ def build_parser() -> argparse.ArgumentParser:
     gateway = subparsers.add_parser("gateway", help="ESPHome gateway")
     gateway_sub = gateway.add_subparsers(dest="action", required=True)
     for name, action, help_text in (
+        ("build", "compile", "Compile gateway ESPHome config (legacy alias)"),
         ("compile", "compile", "Compile gateway ESPHome config"),
         ("run", "run", "Compile, flash, and stream gateway logs"),
         ("log", "logs", "Stream gateway logs"),
