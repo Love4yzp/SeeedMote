@@ -98,20 +98,50 @@ esphome run gateway/esphome.yaml
 
 ---
 
-## §5 BTHome 对象表(mote 广播的字段)
+## §5 v2 通信协议总览
 
-`mote/` 固件当前广播的 BTHome v2 Service Data 对象,供 `gateway/esphome.yaml` 对照:
+### 5.1 BTHome 对象表(mote 广播的字段)
 
-| Object | object_id | Type | ESPHome sensor type |
-|--------|-----------|------|---------------------|
-| packet_id | 0x00 | uint8 | (去重用,不暴露为 sensor) |
-| moving | 0x22 | uint8 (bool) | `moving` (binary_sensor) |
-| vibration | 0x2C | uint8 (bool) | `vibration` (binary_sensor) |
-| count | 0x3E | uint32 | `count` (sensor) |
+`mote/` 固件广播的 BTHome v2 Service Data 对象,供 `gateway/esphome.yaml` 对照。Service Data UUID: `0xFCD2`(BTHome v2,unencrypted,trigger-based)。
 
-Service Data UUID: `0xFCD2` (BTHome v2,unencrypted,trigger-based)。
+| Object | object_id | Type | 说明 |
+|--------|-----------|------|------|
+| packet_id | 0x00 | uint8 | multi-gateway dedup key,暴露 MQTT |
+| moving | 0x22 | uint8 (bool) | `1`=motion event / `0`=boot heartbeat,**gateway 用它分流 topic** |
 
-**事件型原则**:mote 触发才广播,`count` 每业务事件递增一次,**不是 heartbeat**。
+> **历史**:`vibration` (0x2C) + `count` (0x3E) 在 v4 设计中删除(Stage 2 后 IMU 硬件已过滤 noise,PICKUP/MOVING 二分失意义;`count` 角色被 `packet_id` + consumer 端 dedup 接管)。**Phase 1 mote 固件落地前**,gateway 解析器对这两个 object_id 保留 tolerate 路径(`gateway/esphome.yaml` lambda 走对象 id+长度循环,不依赖固定 offset)。
+
+### 5.2 MQTT topic(gateway 上行)
+
+| Topic | 触发 | Payload |
+|---|---|---|
+| `seeedmote/<mac_no_colons>/event` | `moving=1` 的 BTHome 帧 | `{"packet_id": N, "rssi": -55, "gw": "<gw_name>"}` |
+| `seeedmote/<mac_no_colons>/online` | `moving=0` 的 boot heartbeat 帧 | `{"rssi": -55, "gw": "<gw_name>"}` |
+
+- `<mac_no_colons>` = 小写无冒号 MAC,e.g. `aabbccddeeff`
+- `<gw_name>` = ESPHome `esphome.name`(每个 gateway 自己的标识)
+- **不暴露 `moving` 到 payload** —— gateway 已根据它分流 topic,consumer 无需再看
+- **下行无 MQTT topic** —— 配置走 Web BT 直连
+
+### 5.3 Gateway 过滤策略
+
+Gateway 用 **BLE Local Name 前缀 `"SEEED"` + Service Data UUID `0xFCD2`** 双重过滤识别 Mote。
+- Name 前缀匹配兼容当前 `"SEEED"` 和 Phase 2 后的 `"SEEED-XXYYZZ"`(FICR 派生)
+- UUID 是权威过滤;名字仅用于早期 reject
+- **不依赖 MAC 地址** —— 同一 gateway 可同时听多个 mote
+
+### 5.4 Gateway 不使用 `bthome_receiver` 外部组件
+
+历史上 `gateway/esphome.yaml` 试过 `bthome_receiver`(社区 external component)。**v4 P0 决定回归 raw `esp32_ble_tracker.on_ble_advertise` lambda 解析**,原因:
+- `bthome_receiver` 按"per-device sensor mapping"(Home Assistant 模型)设计,要求每个 mote 绑定固定 MAC,跟 v2 多 mote 单 gateway 冲突
+- 不暴露 per-packet RSSI,路由表算法没数据可用
+- 不支持按 BTHome 对象值动态选 MQTT topic(`/event` vs `/online` 分流)
+
+整个 BTHome 解析在 `gateway/esphome.yaml` 内联 lambda,约 40 行,是 gateway 的全部 BTHome 表面。
+
+### 5.5 事件型原则
+
+数据平面仍只在 IMU WAKE_UP 触发时发新 BTHome 帧。控制平面允许 mote boot 后发一帧 `moving=0` 作 heartbeat(Phase 2 加),以及 event/boot 后开 30s connectable window(Phase 3 加)。
 
 ---
 
@@ -147,3 +177,7 @@ Service Data UUID: `0xFCD2` (BTHome v2,unencrypted,trigger-based)。
 | 我能不能加 OTA / MCUBoot? | v2.0 显式放弃,后续由人决策 |
 | 我能不能在 src/ 里直接 `#include <zephyr.h>`? | **不能**,Zephyr 3.7 用带前缀的头(`<zephyr/kernel.h>`) |
 | NCS 需要在 project 目录里 bootstrap? | NCS 工作区在 `~/ncs/<version>/` 共享;`ZEPHYR_BASE` 在 Makefile 派生 |
+| Gateway 用 `bthome_receiver` 外部组件? | **不用**。v4 P0 决定回归 raw `on_ble_advertise`(理由见 §5.4) |
+| Downlink 走 MQTT broker? | **不**。配置走 Web BT 直连;gateway 不订阅任何 topic |
+| Gateway 加 BLE Client 做下行? | **不**。Gateway 哑管道,纯 YAML |
+| iOS Safari 上 Web BT 配置? | **不支持**。v2.0 demo + 技术员限定 Chrome / Android |

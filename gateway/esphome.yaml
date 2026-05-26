@@ -24,38 +24,86 @@ wifi:
     password: !secret ap_password
 
 mqtt:
+  id: mqtt_client
   broker: !secret mqtt_broker
   port: !secret mqtt_port
   username: !secret mqtt_username
   password: !secret mqtt_password
 
-external_components:
-  - source:
-      type: git
-      url: https://github.com/dz0ny/esphome-bthome
-      ref: main
-    components: [bthome_receiver]
-
+# Phase 0 (v4): raw BTHome v2 parse.
+#
+# Why not the `bthome_receiver` external component? It's modeled around
+# per-device sensor mapping (Home Assistant style) — it doesn't expose raw
+# RSSI per packet, doesn't let you route a single BTHome object_id to
+# different MQTT topics based on its value (event vs online split), and
+# binds each mote by a hardcoded MAC. v4 needs multi-mote, per-packet RSSI,
+# and payload-based routing, so we parse the adv directly. The block below
+# is ~40 lines and is the entirety of the gateway's BTHome surface.
+#
+# Forward compatibility: the parser walks BTHome objects by id+length
+# rather than hardcoded offsets, so it keeps working when Phase 1 drops the
+# `vibration` (0x2C) and `count` (0x3E) objects from the mote firmware.
 esp32_ble_tracker:
   scan_parameters:
     active: false
+  on_ble_advertise:
+    then:
+      - lambda: |-
+          // Filter 1: any "SEEED" / "SEEED-XXYYZZ" name. Cheap reject for the
+          // 99% of adv packets from other devices before we touch service data.
+          const std::string &name = x.get_name();
+          if (name.rfind("SEEED", 0) != 0) return;
 
-bthome_receiver:
-  ble_stack: bluedroid
-  devices:
-    - mac_address: !secret mote_mac
-      name: SeeedMote
+          for (auto &sd : x.get_service_datas()) {
+            // Filter 2: BTHome v2 service UUID. Authoritative per v4 §7.
+            if (sd.uuid != esphome::esp32_ble_tracker::ESPBTUUID::from_uint16(0xFCD2)) continue;
+            if (sd.data.size() < 1) continue;
+            if (sd.data[0] != 0x44) continue;  // device_info: BTHome v2, unencrypted, trigger-based
 
-binary_sensor:
-  - platform: bthome_receiver
-    mac_address: !secret mote_mac
-    moving:
-      name: "Moving"
-    vibration:
-      name: "Vibration"
+            // BTHome v2 object-id walk. Sizes are hardcoded for the ids
+            // this firmware emits today; an unknown id bails out (we can't
+            // know its length without a full size table).
+            bool have_pid = false, have_moving = false, parse_err = false;
+            uint8_t packet_id = 0, moving = 0;
+            size_t i = 1;
+            while (i < sd.data.size()) {
+              uint8_t obj = sd.data[i];
+              size_t need;
+              switch (obj) {
+                case 0x00: need = 1; break;  // packet_id, uint8
+                case 0x22: need = 1; break;  // moving, bool uint8
+                case 0x2C: need = 1; break;  // vibration, bool uint8 (P1 drops; tolerated)
+                case 0x3E: need = 4; break;  // count, uint32 LE (P1 drops; tolerated)
+                default:   parse_err = true; need = 0; break;
+              }
+              if (parse_err) break;
+              if (i + 1 + need > sd.data.size()) { parse_err = true; break; }
+              if (obj == 0x00) { packet_id = sd.data[i + 1]; have_pid = true; }
+              else if (obj == 0x22) { moving = sd.data[i + 1]; have_moving = true; }
+              i += 1 + need;
+            }
+            if (parse_err || !have_pid || !have_moving) continue;
 
-sensor:
-  - platform: bthome_receiver
-    mac_address: !secret mote_mac
-    count_uint32:
-      name: "Count"
+            std::string mac_key;
+            for (char c : x.address_str()) {
+              if (c != ':') mac_key += (char)::tolower((unsigned char)c);
+            }
+
+            // Topic split: moving=1 is a motion event; moving=0 is the
+            // boot heartbeat ("/online" lets the consumer mark first/return
+            // appearance without inflating the event stream).
+            const char *suffix = (moving == 1) ? "/event" : "/online";
+            std::string topic = std::string("seeedmote/") + mac_key + suffix;
+
+            std::string payload;
+            if (moving == 1) {
+              payload = std::string("{\"packet_id\":") + std::to_string(packet_id)
+                      + ",\"rssi\":" + std::to_string(x.get_rssi())
+                      + ",\"gw\":\"" + App.get_name() + "\"}";
+            } else {
+              payload = std::string("{\"rssi\":") + std::to_string(x.get_rssi())
+                      + ",\"gw\":\"" + App.get_name() + "\"}";
+            }
+
+            id(mqtt_client).publish(topic, payload);
+          }
