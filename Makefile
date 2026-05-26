@@ -56,12 +56,22 @@ flash: build
 		echo "1200-baud touch -> $$port"; \
 		python3 -c "import serial,time; s=serial.Serial('$$port', 1200); time.sleep(0.05); s.close()" 2>/dev/null || true; \
 	done
-	@echo "Waiting for $(UF2_VOLUME) (up to 6s)..."
-	@for i in $$(seq 1 20); do \
+	@echo "Waiting for $(UF2_VOLUME) (up to 3s, auto via 1200-baud touch)..."
+	@for i in $$(seq 1 10); do \
 		[ -d "$(UF2_VOLUME)" ] && break; sleep 0.3; \
 	done
-	@[ -d "$(UF2_VOLUME)" ] || { echo "$(UF2_VOLUME) not mounted — double-tap RESET and retry"; exit 1; }
-	cp $(WEST_DIR)/$(NRF_BUILD)/zephyr/zephyr.uf2 $(UF2_VOLUME)/
+	@if [ ! -d "$(UF2_VOLUME)" ]; then \
+		echo ""; \
+		echo "  Release build has no USB CDC — 1200-baud touch doesn't work."; \
+		echo "  >>> Double-tap the RESET button on the XIAO now <<<"; \
+		echo ""; \
+		echo "Waiting for $(UF2_VOLUME) (up to 30s)..."; \
+		for i in $$(seq 1 100); do \
+			[ -d "$(UF2_VOLUME)" ] && break; sleep 0.3; \
+		done; \
+	fi
+	@[ -d "$(UF2_VOLUME)" ] || { echo "$(UF2_VOLUME) still not mounted — giving up"; exit 1; }
+	cp -X $(WEST_DIR)/$(NRF_BUILD)/zephyr/zephyr.uf2 $(UF2_VOLUME)/
 
 monitor:
 	tio $(MONITOR_PORT)
@@ -71,8 +81,8 @@ run: flash monitor
 clean:
 	cd $(WEST_DIR) && ZEPHYR_BASE=$(ZEPHYR_BASE) $(WEST) build -d $(NRF_BUILD) -t pristine
 
-# App demo (app-solution/retail/)
+# App demo (app/)
 #   make app             live mode (requires MQTT_BROKER env var)
 #   make app MOCK=true   scripted mock events, no hardware needed
 app:
-	$(MAKE) -C app-solution/retail dev MOCK=$(MOCK)
+	$(MAKE) -C app dev MOCK=$(MOCK)

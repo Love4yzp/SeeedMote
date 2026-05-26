@@ -1,3 +1,14 @@
+"""MQTT subscriber for the v2 gateway contract.
+
+Topics (gateway publishes, AGENTS.md §5.2):
+  seeedmote/<mac_no_colons>/event   -- motion: {"packet_id": N, "rssi": -55, "gw": "<name>"}
+  seeedmote/<mac_no_colons>/online  -- boot heartbeat: {"rssi": -55, "gw": "<name>"}
+
+Gateway-level liveness is derived from these messages: whenever any frame
+arrives tagged with `gw`, that gateway is marked online; a reaper task (run
+from main.py) flips it offline after GATEWAY_ONLINE_TTL_S of silence.
+"""
+
 import asyncio
 import json
 import logging
@@ -10,11 +21,11 @@ from store import EventStore
 
 logger = logging.getLogger(__name__)
 
+EVENT_TOPIC = "seeedmote/+/event"
+ONLINE_TOPIC = "seeedmote/+/online"
+
 
 class MqttClient:
-    EVENT_TOPIC = "mote/v1/+/event"
-    STATUS_TOPIC = "mote/v1/+/status"
-
     def __init__(
         self,
         store: EventStore,
@@ -24,14 +35,14 @@ class MqttClient:
         password: str | None,
         loop: asyncio.AbstractEventLoop,
         on_event: Callable[[dict], Coroutine[Any, Any, None]],
-        on_status: Callable[[str, dict], Coroutine[Any, Any, None]],
+        on_gateway: Callable[[str, dict], Coroutine[Any, Any, None]],
     ) -> None:
         self._store = store
         self._broker = broker
         self._port = port
         self._loop = loop
         self._on_event = on_event
-        self._on_status = on_status
+        self._on_gateway = on_gateway
         self._connected = False
 
         self._client = mqtt.Client(
@@ -62,8 +73,8 @@ class MqttClient:
             logger.warning("MQTT connect failed: %s", reason_code)
             return
         self._connected = True
-        client.subscribe([(self.EVENT_TOPIC, 1), (self.STATUS_TOPIC, 1)])
-        logger.info("MQTT connected, subscribed to event + status topics")
+        client.subscribe([(EVENT_TOPIC, 1), (ONLINE_TOPIC, 1)])
+        logger.info("MQTT connected, subscribed to event + online topics")
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self._connected = False
@@ -75,17 +86,28 @@ class MqttClient:
         except (json.JSONDecodeError, UnicodeDecodeError):
             return
 
-        topic: str = msg.topic
-        if topic.endswith("/event"):
-            stored = self._store.add_event(data)
+        # Topic shape: seeedmote/<mac>/event | seeedmote/<mac>/online
+        parts = msg.topic.split("/")
+        if len(parts) != 3:
+            return
+        mote_mac = parts[1].lower()
+        kind = parts[2]
+
+        gw_id = str(data.get("gw") or "unknown")
+        rssi = int(data.get("rssi", 0))
+
+        if kind == "event":
+            packet_id = int(data.get("packet_id", 0))
+            stored = self._store.add_event(mote_mac, gw_id, packet_id, rssi)
             if stored is not None:
+                asyncio.run_coroutine_threadsafe(self._on_event(stored), self._loop)
+                # add_event already touched the gateway; broadcast its status
+                gw_entry = self._store.touch_gateway(gw_id, rssi)
                 asyncio.run_coroutine_threadsafe(
-                    self._on_event(stored), self._loop
+                    self._on_gateway(gw_id, gw_entry), self._loop
                 )
-        elif topic.endswith("/status"):
-            parts = topic.split("/")
-            gw_id: str = data.get("gw_id") or (parts[2] if len(parts) > 2 else "unknown")
-            stored = self._store.set_gateway_status(gw_id, data)
+        elif kind == "online":
+            gw_entry = self._store.touch_gateway(gw_id, rssi)
             asyncio.run_coroutine_threadsafe(
-                self._on_status(gw_id, stored), self._loop
+                self._on_gateway(gw_id, gw_entry), self._loop
             )

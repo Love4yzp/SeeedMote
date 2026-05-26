@@ -28,7 +28,7 @@ export const useStore = create<Store>((set) => ({
   addEvent: (ev) =>
     set((s) => {
       const events = [ev, ...s.events].slice(0, EVENT_HISTORY_MAX);
-      return { events, total: s.total + 1, brokerConnected: true };
+      return { events, total: s.total + 1 };
     }),
 
   setGateway: (gwId, status) =>

@@ -45,8 +45,9 @@ seeedmote-v2/
 ├── gateway/
 │   ├── esphome.yaml                ← XIAO ESP32-S3 ESPHome 配置
 │   └── secrets.yaml.example        ← WiFi/MQTT/MAC 配置模板
-├── app-solution/
-│   └── retail/                     ← 零售演示 web UI + backend
+├── app/                            ← 零售演示 web UI + backend
+├── tools/
+│   └── web-bt/                     ← Chrome Web BT 现场配置工具(单页静态)
 └── docs/
     ├── architecture.md             ← 设计总览
     └── build.md                    ← 构建命令清单
