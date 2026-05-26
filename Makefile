@@ -1,7 +1,8 @@
 # SeeedMote v2 — dev shortcuts (mote only; gateway uses ESPHome CLI)
 #
 # Usage:
-#   make build                  compile mote firmware
+#   make build                  compile mote firmware (release; RTT logs only)
+#   make build DEBUG=1          compile with USB CDC console (mote/debug.conf)
 #   make flash                  compile + copy UF2 to XIAO bootloader volume
 #   make monitor                open serial monitor
 #   make run                    flash + monitor
@@ -32,14 +33,34 @@ else
   MONITOR_PORT := /dev/cu.usbmodem*
 endif
 
+ifdef DEBUG
+  EXTRA_BUILD_ARGS := -- -DEXTRA_CONF_FILE=debug.conf
+else
+  EXTRA_BUILD_ARGS :=
+endif
+
 .PHONY: all build flash monitor run clean app
 
 all: run
 
 build:
-	cd $(WEST_DIR) && ZEPHYR_BASE=$(ZEPHYR_BASE) $(WEST) build --no-sysbuild -p always -b $(NRF_BOARD) -d $(NRF_BUILD)
+	cd $(WEST_DIR) && ZEPHYR_BASE=$(ZEPHYR_BASE) $(WEST) build --no-sysbuild -p always -b $(NRF_BOARD) -d $(NRF_BUILD) $(EXTRA_BUILD_ARGS)
 
+# 1200-baud touch: a DEBUG=1 build's CDC handler reboots the chip into the
+# UF2 bootloader when the host briefly opens the port at 1200 baud, so no
+# physical double-tap is needed. Release builds (no USB CDC) silently
+# ignore the touch — fall back to the manual double-tap.
 flash: build
+	@for port in $(MONITOR_PORT); do \
+		[ -e "$$port" ] || continue; \
+		echo "1200-baud touch -> $$port"; \
+		python3 -c "import serial,time; s=serial.Serial('$$port', 1200); time.sleep(0.05); s.close()" 2>/dev/null || true; \
+	done
+	@echo "Waiting for $(UF2_VOLUME) (up to 6s)..."
+	@for i in $$(seq 1 20); do \
+		[ -d "$(UF2_VOLUME)" ] && break; sleep 0.3; \
+	done
+	@[ -d "$(UF2_VOLUME)" ] || { echo "$(UF2_VOLUME) not mounted — double-tap RESET and retry"; exit 1; }
 	cp $(WEST_DIR)/$(NRF_BUILD)/zephyr/zephyr.uf2 $(UF2_VOLUME)/
 
 monitor:

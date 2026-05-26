@@ -17,6 +17,26 @@
 
 `count` 每业务事件递增一次,不是 heartbeat。`packet_id` 用于 BLE 链路去重。
 
+## IMU 轴向(经验测出,LSM6DS3TR-C)
+
+XIAO Sense 上 LSM6DS3TR-C 的 chip 坐标系相对板子物理方向(**平放 USB-C 朝你,组件面朝上** 为参考姿态):
+
+| Chip 轴 | 板上方向 |
+|---|---|
+| **+X** | 远端 BAT 焊盘方向 |
+| **-X** | 近端 USB-C 方向 |
+| **+Y** | 左长边方向(组件面朝上时你的左手边) |
+| **-Y** | 右长边方向 |
+| **+Z** | 出组件面(朝天) |
+| **-Z** | 进 PCB(朝地) |
+
+右手系自验证:`+X × +Y = +Z` ✓
+
+参考姿态静态读数:`ax ≈ 0, ay ≈ 0, az ≈ +1000 mg`,L1 magnitude ≈ 1000 mg。
+
+**算法影响**:当前 motion 算法用 L1 范数,理论上方向无关;实际 L1 在静止状态会随姿态在 1000-1732 mg 之间波动,**任意 45° 斜挂时 L1 ≈ 1414 mg,仍在 pickup 阈值 1500 mg 之下**,不会误判。
+后续 Stage 2 切到芯片硬件 slope(高通后)检测,完全 orientation-invariant,这张表只用于调试时解读 raw 读数。
+
 ## 第一次 bootstrap(一次性,~4 GB 下载)
 
 本 project 使用**外置 NCS workspace**,不在仓库内执行 `west init`。
