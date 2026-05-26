@@ -49,7 +49,12 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
+#if defined(CONFIG_USB_DEVICE_STACK)
 #include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/sys/reboot.h>
+#include <hal/nrf_power.h>
+#endif
 
 LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 
@@ -82,12 +87,18 @@ struct mote_config {
  * likely need ~300-500. The upstream Zephyr LSM6DSL driver exposes
  * data-ready interrupts, not the chip's wake-up/motion interrupt, so motion
  * is classified from successive accel samples in this firmware.
+ *
+ * sample_hz=12 maps to the LSM6DSL's 12.5 Hz ODR (lowest non-zero rate in
+ * the driver's ODR table). At this rate data-ready fires every ~80 ms,
+ * which is well inside t_idle_ms=2000 and keeps the CPU in System ON sleep
+ * the rest of the time. Hardware wake-up interrupt (~3 µA quiescent) is
+ * Stage 2 — needs direct register access since the driver doesn't expose it.
  * TODO: load from NVS/settings when a downlink config channel exists (Step 5/6). */
 static struct mote_config cfg = {
     .motion_threshold_mg = 80,
     .pickup_peak_mg    = 1500,
     .t_idle_ms         = 2000,
-    .sample_hz          = 26,
+    .sample_hz          = 12,
     .pickup_burst_count = 5,
     .pickup_burst_ms   = 100,
 };
@@ -96,6 +107,24 @@ static struct mote_config cfg = {
 
 #define LED0_NODE DT_ALIAS(led0)
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+
+/* The LED is event-driven: a one-shot 100 ms pulse per emitted business
+ * event (not per burst retransmit). Boot is 3 × 80 ms quick blinks so the
+ * patterns are easy to tell apart: 3-fast = booted, 1-medium = motion.
+ * gpio_dt_spec handles ACTIVE_LOW inversion so set(1) = lit, set(0) = dark
+ * on either polarity. */
+static void led_off_handler(struct k_timer *timer)
+{
+    ARG_UNUSED(timer);
+    gpio_pin_set_dt(&led, 0);
+}
+K_TIMER_DEFINE(led_off_timer, led_off_handler, NULL);
+
+static void led_pulse_event(void)
+{
+    gpio_pin_set_dt(&led, 1);
+    k_timer_start(&led_off_timer, K_MSEC(100), K_NO_WAIT);
+}
 
 /* The IMU is exposed via app.overlay as `aliases { imu = &lsm6dsl; };` so
  * this main.c stays board-neutral. */
@@ -141,10 +170,12 @@ static struct bthome_payload payload;
 
 static struct bt_data idle_adv_data[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
+    BT_DATA(BT_DATA_NAME_COMPLETE, "SEEED", 5),
 };
 
 static struct bt_data event_adv_data[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
+    BT_DATA(BT_DATA_NAME_COMPLETE, "SEEED", 5),
     BT_DATA(BT_DATA_SVC_DATA16,
             (uint8_t *)&payload, sizeof(payload)),
 };
@@ -173,10 +204,14 @@ static int rebuild_and_push_adv(uint8_t event_type)
                                  NULL, 0);
 }
 
-/* New business event: bump event_counter, then push the frame. */
+/* New business event: bump event_counter, then push the frame. The LED
+ * pulse fires here (not in republish_event) so burst retransmits don't
+ * leave the LED on for the whole burst window — single 100 ms blink per
+ * business event. */
 static int emit_new_event(uint8_t event_type)
 {
     event_counter++;
+    led_pulse_event();
     return rebuild_and_push_adv(event_type);
 }
 
@@ -263,13 +298,16 @@ static void state_machine_task(void *p1, void *p2, void *p3)
         prev_mg = seed;
     }
 
-    /* Block until the data-ready trigger fires or until pickup_burst_ms
-     * elapses (whichever comes first). The timeout lets us service in-flight
-     * burst retransmissions without a separate timer thread, while the
-     * gateway still only sees BLE frames when a threshold crossing occurs. */
+    /* Block on the data-ready trigger. When a burst is in flight we also
+     * need to wake every pickup_burst_ms to push the next retransmit; with
+     * no burst pending we wait K_FOREVER so the idle thread can park the
+     * CPU in WFI (System ON sleep) until the IMU pings us again. The
+     * idle-window check below is still exercised at ODR rate while
+     * STATE_MOVING (~12.5 Hz), well inside t_idle_ms=2000. */
     while (1) {
-        bool got_sample =
-            (k_sem_take(&data_ready_sem, K_MSEC(cfg.pickup_burst_ms)) == 0);
+        k_timeout_t wait = (burst_left > 0) ? K_MSEC(cfg.pickup_burst_ms)
+                                            : K_FOREVER;
+        bool got_sample = (k_sem_take(&data_ready_sem, wait) == 0);
         int64_t now = k_uptime_get();
 
         if (got_sample) {
@@ -326,10 +364,11 @@ K_THREAD_DEFINE(state_thread_id, 2048, state_machine_task, NULL, NULL, NULL,
 
 /* ---- Liveness LED ------------------------------------------------------- */
 
-static void blink_task(void *p1, void *p2, void *p3)
+/* One-time boot indicator: 3 short blinks before BLE/IMU init so a user can
+ * confirm the MCU is alive even when nothing else is hooked up. After this
+ * the LED is silent except for led_pulse_50ms() on each emitted event. */
+static void led_init_and_boot_blink(void)
 {
-    ARG_UNUSED(p1); ARG_UNUSED(p2); ARG_UNUSED(p3);
-
     if (!gpio_is_ready_dt(&led)) {
         LOG_ERR("led0 not ready");
         return;
@@ -338,29 +377,75 @@ static void blink_task(void *p1, void *p2, void *p3)
         LOG_ERR("gpio_pin_configure_dt failed");
         return;
     }
-    while (1) {
-        gpio_pin_toggle_dt(&led);
-        k_msleep(500);
+    for (int i = 0; i < 3; i++) {
+        gpio_pin_set_dt(&led, 1);
+        k_msleep(80);
+        gpio_pin_set_dt(&led, 0);
+        k_msleep(120);
     }
 }
 
-K_THREAD_DEFINE(blink_thread_id, 512, blink_task, NULL, NULL, NULL,
-                K_PRIO_PREEMPT(7), 0, 0);
+/* ---- 1200-baud touch DFU trigger (debug builds only) ------------------- */
+
+#if defined(CONFIG_USB_DEVICE_STACK)
+/* The Adafruit nRF52 bootloader checks GPREGRET on reset: writing 0x57
+ * before sys_reboot puts the chip into UF2 mode (mounts as XIAO-SENSE).
+ * Polls every 50 ms for a baud-rate transition into 1200 — the
+ * Arduino / CircuitPython "1200bps touch" convention. Tracking the
+ * transition (rather than instantaneous DTR state) avoids missing the
+ * touch when the host's open/close window is shorter than the poll
+ * period. The whole block is gated by CONFIG_USB_DEVICE_STACK so the
+ * release build doesn't pay for it. */
+#define DFU_MAGIC_UF2_RESET 0x57u
+
+static const struct device *const cdc_dev =
+    DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
+
+static void touch_poll_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(touch_poll_work, touch_poll_handler);
+static uint32_t last_baud;
+
+static void touch_poll_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    uint32_t baud = 0;
+    (void)uart_line_ctrl_get(cdc_dev, UART_LINE_CTRL_BAUD_RATE, &baud);
+
+    if (baud == 1200 && last_baud != 1200) {
+        LOG_INF("1200-baud touch detected — rebooting to UF2 bootloader");
+        nrf_power_gpregret_set(NRF_POWER, 0, DFU_MAGIC_UF2_RESET);
+        sys_reboot(SYS_REBOOT_COLD);
+    }
+    last_baud = baud;
+
+    k_work_schedule(&touch_poll_work, K_MSEC(50));
+}
+#endif /* CONFIG_USB_DEVICE_STACK */
 
 /* ---- main --------------------------------------------------------------- */
 
 int main(void)
 {
-    /* Bring USB CDC up so console log is visible without an SWD probe.
-     * Failure is non-fatal: a non-debug build still works without USB. */
+    led_init_and_boot_blink();
+
+#if defined(CONFIG_USB_DEVICE_STACK)
+    /* Debug-only path: bring USB CDC up so console log is visible without
+     * an SWD probe. Failure is non-fatal — RTT is still attached. The
+     * release build skips this block entirely (no ~3 mA USB quiescent). */
     int usb_rc = usb_enable(NULL);
     if (usb_rc && usb_rc != -EALREADY) {
         /* No console yet, but keep going — RTT may still work. */
     }
     /* Wait a short moment so the host enumerates CDC before we splash. */
     k_msleep(500);
-
     LOG_INF("seeedmote-v2 mote_motion_nrf52840 starting (usb_rc=%d)", usb_rc);
+    /* Start polling for the 1200-baud touch so `make flash DEBUG=1` can
+     * drop us into the UF2 bootloader without a physical RESET tap. */
+    k_work_schedule(&touch_poll_work, K_MSEC(100));
+#else
+    LOG_INF("seeedmote-v2 mote_motion_nrf52840 starting (RTT-only build)");
+#endif
 
     event_counter = 0;
 

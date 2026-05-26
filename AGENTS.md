@@ -132,6 +132,8 @@ Service Data UUID: `0xFCD2` (BTHome v2,unencrypted,trigger-based)。
 | PIO Zephyr `import yaml` 失败 | PIO 安装时没带 pyyaml | `uv tool install platformio --with pyyaml --with west` —— **但即使修了 Zephyr 还是 2.7.1,没用** |
 | ESP-IDF 把 `src_dir = projects` 当单一组件 | 用 monorepo 单根 `platformio.ini` 跨 project | 行不通,每个 ESP-IDF project 必须自己一份 `platformio.ini` |
 | 在 mote/zephyr/ 子目录放 prj.conf | PIO Zephyr 期望那里它自己管 | mote 走 west 后,`prj.conf` 在 project 根目录 |
+| 在 prj.conf 注释掉 USB Kconfig 仍编出 USB 固件 | `boards/seeed/xiao_ble/xiao_ble_nrf52840_sense_defconfig` 硬塞 `CONFIG_USB_DEVICE_STACK=y`,且 board DTS 把 chosen=usb_cdc_acm_uart | release 构建里必须显式 `CONFIG_USB_DEVICE_STACK=n` + `CONSOLE=n` + `UART_CONSOLE=n` + `SERIAL=n` + `LOG_BACKEND_UART=n`;debug 再用 overlay 一次性翻回 |
+| `CONFIG_PM=y` 在 nRF52840 + NCS v2.9.2 被静默丢弃 | `PM depends on HAS_PM`,但 nRF52 SoC 树没 `select HAS_PM`(只 nRF54H 有);.config 既不为 y 也不为 n | 不写 `CONFIG_PM=y`(idle thread 默认 WFI 就够 System ON sleep);`CONFIG_PM_DEVICE=y` 仍独立有效 |
 
 新行格式:`坑 | 触发条件 | 修复`。**追加到表尾,不要重排或删行**。
 
