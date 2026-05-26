@@ -409,6 +409,15 @@ static void touch_poll_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
+    /* Skip the poll until USB CDC has come up — uart_line_ctrl_get on an
+     * unready device would call into NULL driver vtable. Re-arm the timer
+     * at a slower cadence; once the host attaches we fall through to the
+     * normal 50 ms poll. */
+    if (!device_is_ready(cdc_dev)) {
+        k_work_schedule(&touch_poll_work, K_MSEC(200));
+        return;
+    }
+
     uint32_t baud = 0;
     (void)uart_line_ctrl_get(cdc_dev, UART_LINE_CTRL_BAUD_RATE, &baud);
 

@@ -61,7 +61,7 @@ flash: build
 		[ -d "$(UF2_VOLUME)" ] && break; sleep 0.3; \
 	done
 	@[ -d "$(UF2_VOLUME)" ] || { echo "$(UF2_VOLUME) not mounted — double-tap RESET and retry"; exit 1; }
-	cp -X $(WEST_DIR)/$(NRF_BUILD)/zephyr/zephyr.uf2 $(UF2_VOLUME)/
+	cp $(WEST_DIR)/$(NRF_BUILD)/zephyr/zephyr.uf2 $(UF2_VOLUME)/
 
 monitor:
 	tio $(MONITOR_PORT)
