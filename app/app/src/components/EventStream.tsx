@@ -3,33 +3,6 @@ import type { ShoeInfo } from '../types';
 
 const EVENT_TAIL = 50;
 
-interface EventBadgeProps {
-  moving: boolean;
-  vibration: boolean;
-}
-
-function EventBadge({ moving, vibration }: EventBadgeProps) {
-  if (vibration) {
-    return (
-      <span className="relative pl-3 text-xs font-semibold text-blue-700 before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:rounded-full before:bg-blue-500">
-        振动
-      </span>
-    );
-  }
-  if (moving) {
-    return (
-      <span className="relative pl-3 text-xs font-semibold text-slate-600 before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:rounded-full before:bg-slate-400">
-        移动
-      </span>
-    );
-  }
-  return (
-    <span className="relative pl-3 text-xs font-semibold text-slate-400 before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:rounded-full before:bg-slate-200">
-      静止
-    </span>
-  );
-}
-
 interface Props {
   shoes: Record<string, ShoeInfo>;
 }
@@ -58,9 +31,9 @@ export function EventStream({ shoes }: Props) {
               <tr>
                 <th className="px-5 py-3 font-semibold">时间</th>
                 <th className="px-5 py-3 font-semibold">SKU</th>
-                <th className="px-5 py-3 font-semibold">事件</th>
-                <th className="px-5 py-3 font-semibold text-right">ctr</th>
+                <th className="px-5 py-3 font-semibold text-right">pid</th>
                 <th className="px-5 py-3 font-semibold text-right">rssi</th>
+                <th className="px-5 py-3 font-semibold">gateway</th>
                 <th className="px-5 py-3 font-semibold">mote</th>
               </tr>
             </thead>
@@ -71,16 +44,14 @@ export function EventStream({ shoes }: Props) {
                 const sku = meta?.sku ?? `(${ev.mote_mac.slice(-4)})`;
                 return (
                   <tr
-                    key={`${ev.mote_mac}-${ev.ctr}-${i}`}
+                    key={`${ev.mote_mac}-${ev.packet_id}-${i}`}
                     className="hover:bg-slate-50/80 transition-colors"
                   >
                     <td className="px-5 py-3 text-slate-400 font-mono text-xs">{ts}</td>
                     <td className="px-5 py-3 font-semibold text-slate-900">{sku}</td>
-                    <td className="px-5 py-3">
-                      <EventBadge moving={ev.moving} vibration={ev.vibration} />
-                    </td>
-                    <td className="px-5 py-3 text-right text-slate-500 font-mono text-xs">{ev.ctr || '—'}</td>
+                    <td className="px-5 py-3 text-right text-slate-500 font-mono text-xs">{ev.packet_id}</td>
                     <td className="px-5 py-3 text-right text-slate-500 font-mono text-xs">{ev.rssi}</td>
+                    <td className="px-5 py-3 text-slate-400 font-mono text-xs">{ev.gw_id}</td>
                     <td className="px-5 py-3 text-slate-400 font-mono text-xs">{ev.mote_mac.slice(-6)}</td>
                   </tr>
                 );

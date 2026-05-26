@@ -93,8 +93,15 @@ static uint8_t bthome_pid;
 #define LSM6DSL_CTRL1_XL_12HZ_2G     0x10u
 #define LSM6DSL_CTRL6_C_XL_LP        0x10u
 #define LSM6DSL_TAP_CFG_WAKE         0xF0u
-#define LSM6DSL_WAKE_UP_THS_94MG     0x03u
-#define LSM6DSL_WAKE_UP_DUR_80MS     0x21u
+/* Runtime-tunable via cfg_svc (Web BT). Defaults survive until reboot.
+ * THS units: ±2g / 64 = 31.25 mg per LSB. 0x03 ≈ 94 mg.
+ * DUR layout: bits[6:5]=WAKE_DUR (in 1/ODR units), bits[3:0]=SLEEP_DUR.
+ * 0x21 = WAKE_DUR=1 (80 ms @ 12.5 Hz) + SLEEP_DUR=1 (~40 s before INACT). */
+#define LSM6DSL_WAKE_UP_THS_DEFAULT  0x03u
+#define LSM6DSL_WAKE_UP_DUR_DEFAULT  0x21u
+
+static uint8_t imu_wake_ths = LSM6DSL_WAKE_UP_THS_DEFAULT;
+static uint8_t imu_wake_dur = LSM6DSL_WAKE_UP_DUR_DEFAULT;
 /* LSM6DSL/LSM6DS3TR-C MD1_CFG: bit7=INT1_INACT_STATE, bit5=INT1_WU. */
 #define LSM6DSL_MD1_CFG_INT1_INACT_STATE BIT(7)
 #define LSM6DSL_MD1_CFG_INT1_WU          BIT(5)
@@ -418,6 +425,29 @@ static int imu_write_reg(uint8_t reg, uint8_t value)
     return rc;
 }
 
+/* ---- Runtime IMU config (exposed to cfg_svc GATT writes) ---------------- */
+
+uint8_t imu_get_wake_ths(void) { return imu_wake_ths; }
+uint8_t imu_get_wake_dur(void) { return imu_wake_dur; }
+
+int imu_set_wake_ths(uint8_t value)
+{
+    int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_THS, value);
+    if (rc == 0) {
+        imu_wake_ths = value;
+    }
+    return rc;
+}
+
+int imu_set_wake_dur(uint8_t value)
+{
+    int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_DUR, value);
+    if (rc == 0) {
+        imu_wake_dur = value;
+    }
+    return rc;
+}
+
 static int imu_read_reg(uint8_t reg, uint8_t *value)
 {
     int rc = i2c_reg_read_byte_dt(&imu_i2c, reg, value);
@@ -479,11 +509,11 @@ static int setup_imu_wake_int1(void)
     if (rc) {
         return rc;
     }
-    rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_THS, LSM6DSL_WAKE_UP_THS_94MG);
+    rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_THS, imu_wake_ths);
     if (rc) {
         return rc;
     }
-    rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_DUR, LSM6DSL_WAKE_UP_DUR_80MS);
+    rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_DUR, imu_wake_dur);
     if (rc) {
         return rc;
     }

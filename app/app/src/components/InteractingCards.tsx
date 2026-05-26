@@ -21,8 +21,9 @@ export function InteractingCards({ shoes }: Props) {
   const latestByMac = new Map<string, typeof events[0]>();
   const counts = new Map<string, number>();
 
+  // v2: every /event is a pickup pulse — mote firmware only advertises on
+  // motion. Aggregate within the pickup window.
   for (const ev of events) {
-    if (!ev.vibration) continue;
     if (now - ev._received_at > PICKUP_WINDOW_S) continue;
     counts.set(ev.mote_mac, (counts.get(ev.mote_mac) ?? 0) + 1);
     if (!latestByMac.has(ev.mote_mac)) latestByMac.set(ev.mote_mac, ev);

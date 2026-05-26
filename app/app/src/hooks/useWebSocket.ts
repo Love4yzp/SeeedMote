@@ -4,7 +4,10 @@ import type { WsMessage } from '../types';
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
-  const { addEvent, setGateway, applySnapshot, setWsConnected } = useStore();
+  const addEvent = useStore((s) => s.addEvent);
+  const setGateway = useStore((s) => s.setGateway);
+  const applySnapshot = useStore((s) => s.applySnapshot);
+  const setWsConnected = useStore((s) => s.setWsConnected);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -28,7 +31,7 @@ export function useWebSocket() {
           applySnapshot(msg);
         } else if (msg.type === 'event') {
           addEvent(msg.payload);
-        } else if (msg.type === 'status') {
+        } else if (msg.type === 'gateway') {
           setGateway(msg.gwId, msg.payload);
         }
       };
@@ -60,5 +63,5 @@ export function useWebSocket() {
         ws.close();
       }
     };
-  }, []);
+  }, [addEvent, setGateway, applySnapshot, setWsConnected]);
 }

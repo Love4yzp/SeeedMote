@@ -1,22 +1,16 @@
 export interface MotionEvent {
-  ts: number;
-  gw_id: string;
   mote_mac: string;
+  gw_id: string;
   rssi: number;
-  moving: boolean;
-  vibration: boolean;
-  pid: number;
-  ctr: number;
+  packet_id: number;
   _received_at: number;
 }
 
 export interface GatewayStatus {
+  gw_id: string;
   online: boolean;
-  reason?: string;
-  gw_id?: string;
-  ip?: string;
-  wifi_ssid?: string;
-  _received_at: number;
+  last_seen: number;
+  last_rssi: number | null;
 }
 
 export interface ShoeInfo {
@@ -30,4 +24,4 @@ export interface ShoeInfo {
 export type WsMessage =
   | { type: 'snapshot'; events: MotionEvent[]; gateways: Record<string, GatewayStatus>; total: number; connected: boolean; mock: boolean }
   | { type: 'event'; payload: MotionEvent }
-  | { type: 'status'; gwId: string; payload: GatewayStatus };
+  | { type: 'gateway'; gwId: string; payload: GatewayStatus };
