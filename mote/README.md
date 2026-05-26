@@ -4,7 +4,7 @@
 **Function**: `motion` — IMU 触发的动作检测
 **Chip**: nRF52840 — west + NCS 工具链
 **Board**: Seeed XIAO nRF52840 Sense (`xiao_ble/nrf52840/sense`)
-**Status**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动,静默时不广播;boot 发 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。Release 默认 RTT 日志,`DEBUG=1` 打开 USB CDC。
+**Status**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动,静默时不广播;boot 发 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。Release 默认 RTT 日志,`./dev mote build --debug` 打开 USB CDC。
 
 LED 交互:boot 白色三闪,IMU IRQ 黄色短闪,事件广播绿色短闪,配置窗口蓝色心跳,Web BT 已连接常亮青色。
 
@@ -48,23 +48,24 @@ XIAO Sense 上 LSM6DS3TR-C 的 chip 坐标系相对板子物理方向(**平放 U
 
 ```bash
 # 从仓库根目录:
-make build                                     # 编译 UF2
-make flash                                     # 拷贝 UF2 到 /Volumes/XIAO-SENSE/
-make monitor                                   # 串口日志(tio)
-make run                                       # flash + monitor
+./dev mote build                              # 编译 UF2
+./dev mote flash                              # 拷贝 UF2 到 /Volumes/XIAO-SENSE/
+./dev mote log                                # 串口日志(tio)
+./dev mote run                                # flash + log
 
 # 覆盖默认值:
-make NCS_VERSION=v2.9.2 build
-make UF2_VOLUME=/Volumes/XIAO-SENSE flash
-make PORT=/dev/cu.usbmodem101 monitor
+./dev mote build --ncs v2.9.2
+./dev mote flash --volume /Volumes/XIAO-SENSE
+./dev mote log --port /dev/cu.usbmodem101
 
-# 直接调用 west(仅当 Makefile 不够用时):
+# 直接调用 west(仅当 ./dev 不够用时):
 cd mote
-ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr nrfutil toolchain-manager launch --ncs-version v2.9.2 -- \
+  west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2
 cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/
 
 # SWD 烧录备选(需 J-Link 或 CMSIS-DAP):
-ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west flash
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr nrfutil toolchain-manager launch --ncs-version v2.9.2 -- west flash
 ```
 
 上电后 5 秒内 Adafruit bootloader 自动挂载 `/Volumes/XIAO-SENSE/`。若错过窗口,双击 RESET 重新进入 bootloader 模式。

@@ -26,9 +26,11 @@ FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型
 
 ## Run
 
+从仓库根目录:
+
 ```bash
-make dev               # FastAPI :3001 + Vite :5173,真 MQTT
-make dev MOCK=true     # 同上,但用脚本化 mock 数据(无需硬件/broker)
+./dev app run          # FastAPI :3001 + Vite :5173,真 MQTT
+./dev app run --mock   # 同上,但用脚本化 mock 数据(无需硬件/broker)
 ```
 
 Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 motion event,无

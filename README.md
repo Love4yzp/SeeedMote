@@ -23,13 +23,14 @@
 
 ```bash
 # Mote(需先安装外置 NCS,详见 docs/build.md)
-make build                                     # 编译 UF2
-make flash                                     # 拷贝 UF2 到 /Volumes/XIAO-SENSE/
-make monitor                                   # 串口日志
+./dev doctor                                  # 检查本机工具链和设备可见性
+./dev mote build                              # 编译 UF2
+./dev mote flash                              # 拷贝 UF2 到 /Volumes/XIAO-SENSE/
+./dev mote log                                # 串口日志
 
 # Gateway(需先安装 ESPHome CLI: pip install esphome)
 cp gateway/secrets.yaml.example gateway/secrets.yaml   # 填入 WiFi/MQTT/MAC
-esphome run gateway/esphome.yaml
+./dev gateway run
 ```
 
 ## Repo layout
@@ -39,7 +40,8 @@ seeedmote-v2/
 ├── README.md                       ← 你在这
 ├── AGENTS.md                       ← ⭐ AI Agent 操作手册(必读)
 ├── CLAUDE.md                       ←   Claude Code 自动 import AGENTS.md
-├── Makefile                        ← mote 编译/烧录入口
+├── dev                             ← 开发入口 CLI(mote/gateway/app/doctor)
+├── Makefile                        ← 兼容转发层,主入口仍是 ./dev
 ├── mote/                           ← XIAO nRF52840 Sense 固件(west + NCS)
 │   ├── west.yml + CMakeLists.txt + prj.conf + app.overlay + src/
 ├── gateway/
@@ -55,8 +57,8 @@ seeedmote-v2/
 
 ## 架构简则
 
-1. **Mote 固件**: 只改 `mote/`，走 `make build / flash`
-2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `esphome run`
+1. **Mote 固件**: 只改 `mote/`，走 `./dev mote build / flash`
+2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `./dev gateway run`
 3. **BTHome 是契约**: 对象映射见 `AGENTS.md §5`，mote 和 gateway 必须同步
 4. **事件型**: 无周期 telemetry，无 raw 数据流，boot heartbeat 仅用于上线/配置窗口发现
 

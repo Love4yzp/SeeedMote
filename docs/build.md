@@ -1,14 +1,26 @@
 # Build — 工具链与命令清单
 
-**双轨制**:**工具链由芯片家族决定**,不由 role 决定:
+主入口是仓库根目录的 `./dev`。根 `Makefile` 只保留兼容转发,不要把它当成人用入口。
+
+工具链边界:
 
 ```
-projects/<any role>_*_nrf52*/     →  west + nRF Connect SDK (NCS v2.9.2)
-gateway/                           →  ESPHome YAML
-projects/<any role>_*_rp2040/     →  未定,问人
+mote/      → west + nRF Connect SDK (NCS v2.9.2)
+gateway/   → ESPHome YAML
+app/       → FastAPI + React demo
 ```
 
 Mote 是 west + NCS;Gateway 是 ESPHome YAML。**不要让 AI 自己选轨**。
+
+---
+
+## 一次性检查
+
+```bash
+./dev doctor
+```
+
+`doctor` 会检查 `nrfutil`、`tio`、`esphome`、`gateway/secrets.yaml`、NCS 路径、UF2 卷和当前串口列表。
 
 ---
 
@@ -26,38 +38,39 @@ nrfutil install toolchain-manager device
 nrfutil toolchain-manager install --ncs-version v2.9.2
 ```
 
-完整指引参考 v2.0 仓库 `docs/dev-setup.md`(同款流程)。
-
-### NCS workspace 说明
-
 NCS v2.9.2 安装在 `~/ncs/v2.9.2/`(由 nrfutil toolchain-manager 管理,共享,不在 project 目录里)。
 
-编译时通过 `ZEPHYR_BASE` 指向它,**无需在 project 目录下跑 `west init` / `west update`**。
+编译时 `./dev` 通过 `--ncs` 派生 `ZEPHYR_BASE`,**无需在 project 目录下跑 `west init` / `west update`**。
 
 ### 编译 / 烧录 / 监视
 
 ```bash
-cd projects/mote_motion_nrf52840
+./dev mote build
+./dev mote build --debug
+./dev mote build --clean
 
-# 编译 UF2 bootloader 可直接运行的镜像
-ZEPHYR_BASE=~/ncs/v2.9.2/zephyr west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2
+./dev mote flash
+./dev mote flash --debug
+./dev mote flash --volume /Volumes/XIAO-SENSE
 
-# 清编译
-west build -d build_uf2 -t pristine
+./dev mote log
+./dev mote log --port /dev/cu.usbmodem101
+./dev mote run --debug
 
-# 烧录:首选 UF2 拖拽
-# 上电后 5 秒内 /Volumes/XIAO-SENSE/ 自动出现(Adafruit bootloader 上电即有 DFU 窗口)
-cp build_uf2/zephyr/zephyr.uf2 /Volumes/XIAO-SENSE/
-# Fallback:如果 app 已正常运行想进 bootloader,双击 XIAO 板上的 RESET 按钮
+./dev mote clean
+./dev mote build --ncs v2.9.2
+```
 
-# 备选:SWD(需要 J-Link / CMSIS-DAP)
-west flash
+`./dev mote flash` 会先构建 UF2,然后尝试 1200-baud touch 进入 bootloader。Release 固件没有 USB CDC 时,按提示双击 XIAO RESET,等待 `/Volumes/XIAO-SENSE` 出现。
 
-# 监视日志
-# 首选:USB CDC(mote 上电后出现 /dev/cu.usbmodem*)
-tio /dev/cu.usbmodem*
-# 备选:RTT(SWD 探针)
-JLinkRTTViewer
+### 直接调用 west
+
+仅当 `./dev` 不够用时才直接调用 west:
+
+```bash
+cd mote
+ZEPHYR_BASE=~/ncs/v2.9.2/zephyr nrfutil toolchain-manager launch --ncs-version v2.9.2 -- \
+  west build --no-sysbuild -p always -b xiao_ble/nrf52840/sense -d build_uf2
 ```
 
 ### 不要做的事(west 侧)
@@ -75,22 +88,29 @@ JLinkRTTViewer
 ```bash
 pip install esphome
 esphome version
+cp gateway/secrets.yaml.example gateway/secrets.yaml       # 填 WiFi/MQTT
 ```
 
 ### 编译 / 烧录 / 监视
 
 ```bash
-# 从仓库根
-cp gateway/secrets.yaml.example gateway/secrets.yaml       # 填 WiFi/MQTT
-esphome compile gateway/esphome.yaml                       # 编译
-esphome run gateway/esphome.yaml                           # 编译 + 烧录 + 日志
-esphome logs gateway/esphome.yaml                          # 只看日志
+./dev gateway compile
+./dev gateway run
+./dev gateway log
+```
+
+等价底层命令:
+
+```bash
+esphome compile gateway/esphome.yaml
+esphome run gateway/esphome.yaml
+esphome logs gateway/esphome.yaml
 ```
 
 ### 烧录方式
 
 - **首选**:USB CDC,ESPHome 自动 reset
-- **首次烧录卡住**:按住 BOOT + 短按 RESET 进入下载模式,再运行 `esphome run`
+- **首次烧录卡住**:按住 BOOT + 短按 RESET 进入下载模式,再运行 `./dev gateway run`
 
 ### 不要做的事(Gateway 侧)
 
@@ -101,6 +121,16 @@ esphome logs gateway/esphome.yaml                          # 只看日志
 
 ---
 
+## App demo
+
+```bash
+./dev app run
+./dev app run --mock
+./dev app install
+```
+
+---
+
 ## 已知踩坑
 
 | 现象 | 原因 | 修复 |
@@ -108,22 +138,22 @@ esphome logs gateway/esphome.yaml                          # 只看日志
 | PIO + ESP-IDF: `fatal: not a git repository` at CMake configure | git_describe 失败 | 项目根 `CMakeLists.txt` 加 `set(PROJECT_VER "0.1.0")` 在 `include(...project.cmake)` 之前 |
 | PIO + Zephyr: `ImportError: yaml` | PIO uv venv 没装 pyyaml | `uv tool install platformio --with pyyaml --with west --force` |
 | PIO + Zephyr: `FileExistsError: zephyr/` | PIO 框架 bug,`os.makedirs` 不带 exist_ok | **不要用 PIO + Zephyr**,走 west(已是本架构默认) |
-| west: 找不到 `ZEPHYR_BASE` | 没在 NCS toolchain 环境中 | `nrfutil toolchain-manager launch --` 包一层,或确认 `.west/` 存在 |
-| west build 报老 API 找不到 | NCS 版本不对 | `cat zephyr/VERSION`,应是 3.7.x;否则 `west update` |
-| XIAO ESP32-S3 串口不可见 | 板子无 USB-UART bridge IC | `sdkconfig.defaults` 加 `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y` |
+| west: 找不到 `ZEPHYR_BASE` | 没在 NCS toolchain 环境中 | 用 `./dev` 或显式包 `nrfutil toolchain-manager launch --` |
+| west build 报老 API 找不到 | NCS 版本不对 | 确认使用 `./dev mote build --ncs v2.9.2` |
+| XIAO ESP32-S3 串口不可见 | 板子无 USB-UART bridge IC | ESPHome 配置应启用 USB Serial/JTAG console |
 
 ---
 
-## 完整命令矩阵(可贴 wiki)
+## 完整命令矩阵
 
 | 任务 | Mote | Gateway |
 |---|---|---|
 | 安装工具链 | `nrfutil install toolchain-manager` + NCS | `pip install esphome` |
-| 拉源码 | NCS 已在 `~/ncs/v2.9.2/`,无需 bootstrap | ESPHome 按需拉平台包 |
-| 编译 | `make build` | `esphome compile gateway/esphome.yaml` |
-| 烧录 | `make flash` | `esphome run gateway/esphome.yaml` |
-| 监视 | `make monitor`(DEBUG=1 USB CDC);`JLinkRTTViewer`(RTT/SWD) | `esphome logs gateway/esphome.yaml` |
-| 清产物 | `make clean` | 删除 ESPHome 本地 build 缓存 |
+| 检查环境 | `./dev doctor` | `./dev doctor` |
+| 编译 | `./dev mote build` | `./dev gateway compile` |
+| 烧录 | `./dev mote flash` | `./dev gateway run` |
+| 监视 | `./dev mote log`(DEBUG 固件走 USB CDC);`JLinkRTTViewer`(RTT/SWD) | `./dev gateway log` |
+| 清产物 | `./dev mote clean` | 删除 ESPHome 本地 build 缓存 |
 
 ---
 

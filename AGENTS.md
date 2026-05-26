@@ -14,7 +14,7 @@
 | 你需要知道的 | 唯一权威 |
 |---|---|
 | NCS / Zephyr 版本 | `mote/west.yml`(manifest pin) |
-| `ZEPHYR_BASE` 路径 | 根 `Makefile`(从 `NCS_VERSION` 派生) |
+| `ZEPHYR_BASE` 路径 | 根 `dev` CLI(从 `--ncs` 派生) |
 | nRF 板名 / DTS overlay | `mote/app.overlay` + `mote/prj.conf` |
 | BTHome 对象映射 | §5 内联表 + [BTHome spec](https://bthome.io/format/) |
 | ESPHome gateway 配置 | `gateway/esphome.yaml` |
@@ -65,7 +65,7 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 | 板特化 DTS overlay | `app.overlay` |
 | 加 NCS 模块 | `west.yml` 加 entry,然后 `west update` |
 
-构建:`make build`
+构建:`./dev mote build`
 
 ### 任务 B — 改 gateway 配置
 
@@ -75,25 +75,34 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 - 改 WiFi/MQTT → `gateway/secrets.yaml`(本地,不提交)
 - 加 ESPHome automation → `on_value:` / `on_state:` blocks
 
-部署:`esphome run gateway/esphome.yaml`
+部署:`./dev gateway run`
 
 ---
 
-## §4 构建 / 烧录入口(统一走 Makefile)
+## §4 构建 / 烧录入口(统一走 `./dev`)
 
 ```bash
-make build                   # 编译 mote
-make flash                   # 编译 + 拷贝 UF2 到 bootloader 卷
-make monitor                 # 串口日志
-make run                     # flash + monitor
-make clean                   # 清理构建产物
+./dev doctor                         # 检查工具链 / secrets / 串口 / UF2 卷
 
-make NCS_VERSION=v2.9.2 build
-make UF2_VOLUME=/Volumes/XIAO-SENSE flash
-make PORT=/dev/cu.usbmodem101 monitor
+./dev mote build                     # 编译 mote
+./dev mote build --debug             # 编译 USB CDC debug 固件
+./dev mote flash                     # 编译 + 拷贝 UF2 到 bootloader 卷
+./dev mote log                       # 串口日志
+./dev mote run --debug               # flash + log
+./dev mote clean                     # 清理构建产物
+
+./dev mote build --ncs v2.9.2
+./dev mote flash --volume /Volumes/XIAO-SENSE
+./dev mote log --port /dev/cu.usbmodem101
 
 # Gateway
-esphome run gateway/esphome.yaml
+./dev gateway compile
+./dev gateway run
+./dev gateway log
+
+# App demo
+./dev app run
+./dev app run --mock
 ```
 
 ---
@@ -180,7 +189,7 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 | 我能不能在 `gateway/` 里写 C? | **不能**。Gateway = ESPHome YAML |
 | 我能不能加 OTA / MCUBoot? | v2.0 显式放弃,后续由人决策 |
 | 我能不能在 src/ 里直接 `#include <zephyr.h>`? | **不能**,Zephyr 3.7 用带前缀的头(`<zephyr/kernel.h>`) |
-| NCS 需要在 project 目录里 bootstrap? | NCS 工作区在 `~/ncs/<version>/` 共享;`ZEPHYR_BASE` 在 Makefile 派生 |
+| NCS 需要在 project 目录里 bootstrap? | NCS 工作区在 `~/ncs/<version>/` 共享;`ZEPHYR_BASE` 在 `./dev` 里从 `--ncs` 派生 |
 | Gateway 用 `bthome_receiver` 外部组件? | **不用**。v4 P0 决定回归 raw `on_ble_advertise`(理由见 §5.4) |
 | Downlink 走 MQTT broker? | **不**。配置走 Web BT 直连;gateway 不订阅任何 topic |
 | Gateway 加 BLE Client 做下行? | **不**。Gateway 哑管道,纯 YAML |
