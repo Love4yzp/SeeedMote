@@ -6,6 +6,8 @@
 **Board**: Seeed XIAO nRF52840 Sense (`xiao_ble/nrf52840/sense`)
 **Status**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动,静默时不广播;boot 发 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。Release 默认 RTT 日志,`DEBUG=1` 打开 USB CDC。
 
+LED 交互:boot 白色三闪,IMU IRQ 黄色短闪,事件广播绿色短闪,配置窗口蓝色心跳,Web BT 已连接常亮青色。
+
 ## BTHome 广播对象
 
 | Object | object_id | Type |
@@ -32,7 +34,7 @@ XIAO Sense 上 LSM6DS3TR-C 的 chip 坐标系相对板子物理方向(**平放 U
 
 参考姿态静态读数:`ax ≈ 0, ay ≈ 0, az ≈ +1000 mg`,L1 magnitude ≈ 1000 mg。
 
-**算法影响**:当前固件使用芯片硬件 WAKE_UP slope 检测,高通后方向无关。这张表只用于调试时解读 raw 读数或后续重新启用采样路径。
+**算法影响**:固件以芯片硬件 WAKE_UP slope 检测作为主触发,触发后短采样 raw XL 读数计算连续样本 L1 delta score,用于日志与 source bit 缺失时的兜底。事件发送由 motion gate 的 2s cooldown 去重,不再依赖 INACTIVITY 一定到来才允许下一次事件。
 
 ## 第一次 bootstrap(一次性,~4 GB 下载)
 

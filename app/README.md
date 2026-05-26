@@ -1,7 +1,7 @@
 # app/ — Retail Interaction Demo
 
 FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型 MQTT 出口,
-通过 WebSocket 推给 React 仪表盘。
+在 backend 投影成零售语义事件后,通过 WebSocket 推给 React 仪表盘。
 
 ```
 ┌─────────┐  BLE adv   ┌───────────┐  MQTT pub                ┌────────┐  WS push  ┌──────────────┐
@@ -21,6 +21,8 @@ FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型
 - Backend 通过 topic 段抽 `mote_mac`,通过 payload `gw` 字段推 gateway 在线
   (boot/event 任意一帧到达 → gateway "online";沉默 `GATEWAY_ONLINE_TTL_S` 后翻 offline)。
 - 消费侧按 `(mote_mac, packet_id)` 去重(packet_id 是 uint8 wrap counter)。
+- React 默认不展示 raw `packet_id` / `rssi` / `gw`。Backend 会把 raw event 转为
+  `InteractionEvent`(`商品被拿起`、商品信息、登记状态),技术字段只放在诊断信息里。
 
 ## Run
 
@@ -48,10 +50,10 @@ Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 
 |------|---------|
 | `backend/main.py`        | FastAPI + WebSocket 广播 + mock 协程 + gateway reaper |
 | `backend/mqtt_client.py` | paho-mqtt 订阅,topic → store,推回调 |
+| `backend/semantic_events.py` | raw gateway event → retail `InteractionEvent` |
 | `backend/store.py`       | dedup + 历史缓冲 + 派生 gateway 状态 |
 | `backend/settings.py`    | Pydantic Settings(env 配置) |
 | `app/src/`               | React + Vite 前端 |
 | `app/src/store.ts`       | Zustand store(events, gateways, ws 状态) |
 | `shoes.yaml`             | mote_mac → SKU metadata |
 | `assets/`                | 占位 SVG 鞋图 |
-

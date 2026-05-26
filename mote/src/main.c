@@ -38,6 +38,8 @@
 #include <hal/nrf_power.h>
 #endif
 
+#include "motion_gate.h"
+
 LOG_MODULE_REGISTER(mote, LOG_LEVEL_INF);
 
 /* ---- BTHome wire format ------------------------------------------------- */
@@ -72,13 +74,19 @@ static uint8_t bthome_pid;
 #define CONFIG_WINDOW_MS             30000
 #define CONFIG_LED_INTERVAL_MS       2000
 #define CONFIG_LED_ON_MS             20
+#define MOTION_COOLDOWN_MS           2000
+#define MOTION_MIN_SCORE_MG          90
+#define MOTION_SAMPLE_COUNT          4
+#define MOTION_SAMPLE_INTERVAL_MS    40
 
 /* ---- LSM6DSL wake-up registers ----------------------------------------- */
 
 #define LSM6DSL_REG_WAKE_UP_SRC      0x1Bu
 #define LSM6DSL_REG_CTRL1_XL         0x10u
+#define LSM6DSL_REG_CTRL3_C          0x12u
 #define LSM6DSL_REG_CTRL6_C          0x15u
 #define LSM6DSL_REG_INT1_CTRL        0x0Du
+#define LSM6DSL_REG_OUTX_L_XL        0x28u
 #define LSM6DSL_REG_TAP_CFG          0x58u
 #define LSM6DSL_REG_WAKE_UP_THS      0x5Bu
 #define LSM6DSL_REG_WAKE_UP_DUR      0x5Cu
@@ -87,16 +95,17 @@ static uint8_t bthome_pid;
 #define LSM6DSL_WAKE_SRC_WU_IA       BIT(3)
 #define LSM6DSL_WAKE_SRC_SLEEP_STATE BIT(4)
 
-/* CTRL1_XL=0x10: accelerometer on at 12.5 Hz, +/-2g. The Zephyr driver
+/* CTRL1_XL=0x20: accelerometer on at 26 Hz, +/-2g. The Zephyr driver
  * leaves ODR runtime-selected by default, so set the wake engine's clock
  * explicitly before programming embedded wake-up detection. */
-#define LSM6DSL_CTRL1_XL_12HZ_2G     0x10u
+#define LSM6DSL_CTRL1_XL_26HZ_2G     0x20u
+#define LSM6DSL_CTRL3_C_BDU_IF_INC   (BIT(6) | BIT(2))
 #define LSM6DSL_CTRL6_C_XL_LP        0x10u
 #define LSM6DSL_TAP_CFG_WAKE         0xF0u
 /* Runtime-tunable via cfg_svc (Web BT). Defaults survive until reboot.
  * THS units: ±2g / 64 = 31.25 mg per LSB. 0x03 ≈ 94 mg.
  * DUR layout: bits[6:5]=WAKE_DUR (in 1/ODR units), bits[3:0]=SLEEP_DUR.
- * 0x21 = WAKE_DUR=1 (80 ms @ 12.5 Hz) + SLEEP_DUR=1 (~40 s before INACT). */
+ * 0x21 = WAKE_DUR=1 (38 ms @ 26 Hz) + SLEEP_DUR=1 (~20 s before INACT). */
 #define LSM6DSL_WAKE_UP_THS_DEFAULT  0x03u
 #define LSM6DSL_WAKE_UP_DUR_DEFAULT  0x21u
 
@@ -112,8 +121,12 @@ BUILD_ASSERT(LSM6DSL_MD1_CFG_WAKE_INACT == 0xA0u,
 
 /* ---- Devicetree --------------------------------------------------------- */
 
-#define LED0_NODE DT_ALIAS(led0)
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+#define LED_RED_NODE   DT_ALIAS(led0)
+#define LED_GREEN_NODE DT_ALIAS(led1)
+#define LED_BLUE_NODE  DT_ALIAS(led2)
+static const struct gpio_dt_spec led_red = GPIO_DT_SPEC_GET(LED_RED_NODE, gpios);
+static const struct gpio_dt_spec led_green = GPIO_DT_SPEC_GET(LED_GREEN_NODE, gpios);
+static const struct gpio_dt_spec led_blue = GPIO_DT_SPEC_GET(LED_BLUE_NODE, gpios);
 
 #define IMU_NODE DT_ALIAS(imu)
 static const struct device *const imu_dev = DEVICE_DT_GET(IMU_NODE);
@@ -131,9 +144,14 @@ enum adv_state {
 };
 
 static enum adv_state adv_state = ADV_IDLE;
-static bool motion_active;
 static char bt_name[sizeof("SEEED-FFFFFF")];
 static K_MUTEX_DEFINE(adv_mutex);
+
+static struct motion_gate motion_gate;
+static const struct motion_gate_config motion_gate_cfg = {
+    .min_score_mg = MOTION_MIN_SCORE_MG,
+    .cooldown_ms = MOTION_COOLDOWN_MS,
+};
 
 static const uint8_t adv_flags[] = {
     BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR,
@@ -170,46 +188,80 @@ static K_WORK_DELAYABLE_DEFINE(config_led_work, config_led_handler);
 
 /* ---- LED ---------------------------------------------------------------- */
 
+enum led_color {
+    LED_COLOR_OFF = 0,
+    LED_COLOR_RED = BIT(0),
+    LED_COLOR_GREEN = BIT(1),
+    LED_COLOR_BLUE = BIT(2),
+    LED_COLOR_YELLOW = LED_COLOR_RED | LED_COLOR_GREEN,
+    LED_COLOR_CYAN = LED_COLOR_GREEN | LED_COLOR_BLUE,
+    LED_COLOR_WHITE = LED_COLOR_RED | LED_COLOR_GREEN | LED_COLOR_BLUE,
+};
+
+static bool leds_ready;
+
+static void led_set_color(enum led_color color)
+{
+    if (!leds_ready) {
+        return;
+    }
+
+    gpio_pin_set_dt(&led_red, (color & LED_COLOR_RED) != 0);
+    gpio_pin_set_dt(&led_green, (color & LED_COLOR_GREEN) != 0);
+    gpio_pin_set_dt(&led_blue, (color & LED_COLOR_BLUE) != 0);
+}
+
 static void led_off_handler(struct k_timer *timer)
 {
     ARG_UNUSED(timer);
-    gpio_pin_set_dt(&led, 0);
+    led_set_color(LED_COLOR_OFF);
 }
 K_TIMER_DEFINE(led_off_timer, led_off_handler, NULL);
 
-static void led_pulse(k_timeout_t on_time)
+static void led_pulse(enum led_color color, k_timeout_t on_time)
 {
-    gpio_pin_set_dt(&led, 1);
+    led_set_color(color);
     k_timer_start(&led_off_timer, on_time, K_NO_WAIT);
 }
 
 static void led_pulse_event(void)
 {
-    led_pulse(K_MSEC(50));
+    led_pulse(LED_COLOR_GREEN, K_MSEC(70));
+}
+
+static void led_pulse_imu_irq(void)
+{
+    led_pulse(LED_COLOR_YELLOW, K_MSEC(25));
 }
 
 static void led_config_tick(void)
 {
-    led_pulse(K_MSEC(CONFIG_LED_ON_MS));
+    led_pulse(LED_COLOR_BLUE, K_MSEC(CONFIG_LED_ON_MS));
 }
 
 /* One-time boot indicator: 3 short blinks before BLE/IMU init. After this,
- * LED patterns are: event=single 50ms pulse, config window=20ms every 2s,
- * connected=solid on. */
+ * LED patterns are: IMU IRQ=yellow tick, event=green pulse,
+ * config window=blue tick every 2s, connected=solid cyan. */
 static void led_init_and_boot_blink(void)
 {
-    if (!gpio_is_ready_dt(&led)) {
-        LOG_ERR("led0 not ready");
+    if (!gpio_is_ready_dt(&led_red) ||
+        !gpio_is_ready_dt(&led_green) ||
+        !gpio_is_ready_dt(&led_blue)) {
+        LOG_ERR("RGB LEDs not ready");
         return;
     }
-    if (gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE) < 0) {
-        LOG_ERR("gpio_pin_configure_dt failed");
+    if (gpio_pin_configure_dt(&led_red, GPIO_OUTPUT_INACTIVE) < 0 ||
+        gpio_pin_configure_dt(&led_green, GPIO_OUTPUT_INACTIVE) < 0 ||
+        gpio_pin_configure_dt(&led_blue, GPIO_OUTPUT_INACTIVE) < 0) {
+        LOG_ERR("RGB LED gpio configure failed");
         return;
     }
+    leds_ready = true;
+
     for (int i = 0; i < 3; i++) {
-        gpio_pin_set_dt(&led, 1);
+        led_set_color(LED_COLOR_WHITE);
         k_msleep(80);
-        gpio_pin_set_dt(&led, 0);
+        led_set_color(LED_COLOR_OFF);
         k_msleep(120);
     }
 }
@@ -255,7 +307,7 @@ static void fill_bthome_payload(uint8_t moving)
 static void cancel_config_led(void)
 {
     (void)k_work_cancel_delayable(&config_led_work);
-    gpio_pin_set_dt(&led, 0);
+    led_set_color(LED_COLOR_OFF);
 }
 
 static void stop_advertising(void)
@@ -347,7 +399,6 @@ static void enter_idle(void)
     cancel_config_led();
     stop_advertising();
     adv_state = ADV_IDLE;
-    motion_active = false;
     LOG_INF("advertising idle");
     k_mutex_unlock(&adv_mutex);
 }
@@ -393,7 +444,7 @@ static void bt_connected(struct bt_conn *conn, uint8_t err)
     (void)k_work_cancel_delayable(&burst_done_work);
     cancel_config_led();
     adv_state = ADV_CONNECTED;
-    gpio_pin_set_dt(&led, 1);
+    led_set_color(LED_COLOR_CYAN);
     LOG_INF("BLE connected");
     k_mutex_unlock(&adv_mutex);
 }
@@ -458,6 +509,41 @@ static int imu_read_reg(uint8_t reg, uint8_t *value)
     return rc;
 }
 
+static int imu_read_accel_sample(struct motion_sample *sample)
+{
+    uint8_t raw[6];
+    int rc;
+
+    rc = i2c_burst_read_dt(&imu_i2c, LSM6DSL_REG_OUTX_L_XL,
+                           raw, sizeof(raw));
+    if (rc) {
+        LOG_ERR("imu accel burst read failed: %d", rc);
+        return rc;
+    }
+
+    sample->x = (int16_t)(((uint16_t)raw[1] << 8) | raw[0]);
+    sample->y = (int16_t)(((uint16_t)raw[3] << 8) | raw[2]);
+    sample->z = (int16_t)(((uint16_t)raw[5] << 8) | raw[4]);
+    return 0;
+}
+
+static int imu_capture_motion_samples(struct motion_sample *samples,
+                                      size_t count)
+{
+    for (size_t i = 0; i < count; i++) {
+        int rc = imu_read_accel_sample(&samples[i]);
+
+        if (rc) {
+            return rc;
+        }
+        if (i + 1 < count) {
+            k_msleep(MOTION_SAMPLE_INTERVAL_MS);
+        }
+    }
+
+    return 0;
+}
+
 static void imu_int_handler(const struct device *dev,
                             struct gpio_callback *cb,
                             uint32_t pins)
@@ -497,7 +583,11 @@ static int setup_imu_wake_int1(void)
     if (rc) {
         return rc;
     }
-    rc = imu_write_reg(LSM6DSL_REG_CTRL1_XL, LSM6DSL_CTRL1_XL_12HZ_2G);
+    rc = imu_write_reg(LSM6DSL_REG_CTRL3_C, LSM6DSL_CTRL3_C_BDU_IF_INC);
+    if (rc) {
+        return rc;
+    }
+    rc = imu_write_reg(LSM6DSL_REG_CTRL1_XL, LSM6DSL_CTRL1_XL_26HZ_2G);
     if (rc) {
         return rc;
     }
@@ -549,8 +639,12 @@ static void state_machine_task(void *p1, void *p2, void *p3)
 
     while (1) {
         uint8_t src = 0;
+        int32_t score_mg = 0;
+        enum motion_gate_decision decision;
+        struct motion_sample samples[MOTION_SAMPLE_COUNT];
 
         k_sem_take(&wake_sem, K_FOREVER);
+        led_pulse_imu_irq();
 
         if (imu_read_reg(LSM6DSL_REG_WAKE_UP_SRC, &src)) {
             continue;
@@ -559,16 +653,28 @@ static void state_machine_task(void *p1, void *p2, void *p3)
         bool is_wake = (src & LSM6DSL_WAKE_SRC_WU_IA) != 0;
         bool is_inact = (src & LSM6DSL_WAKE_SRC_SLEEP_STATE) != 0;
 
-        if (is_wake && !motion_active) {
-            motion_active = true;
-            LOG_INF("IMU WAKE_UP src=0x%02x -> event packet_id=%u",
-                    src, (uint8_t)(bthome_pid + 1));
-            (void)start_bthome_burst(1, EVENT_BURST_MS);
+        if (is_wake) {
+            if (imu_capture_motion_samples(samples, ARRAY_SIZE(samples)) == 0) {
+                score_mg = motion_score_mg(samples, ARRAY_SIZE(samples));
+            } else {
+                LOG_WRN("IMU WAKE_UP src=0x%02x; using hardware trigger only",
+                        src);
+            }
         }
 
-        if (is_inact && motion_active) {
-            motion_active = false;
-            LOG_INF("IMU INACTIVITY src=0x%02x", src);
+        decision = motion_gate_update(&motion_gate, &motion_gate_cfg,
+                                      is_wake, is_inact, score_mg,
+                                      k_uptime_get());
+
+        if (decision == MOTION_GATE_EMIT) {
+            LOG_INF("IMU motion src=0x%02x score=%dmg -> event packet_id=%u",
+                    src, score_mg, (uint8_t)(bthome_pid + 1));
+            (void)start_bthome_burst(1, EVENT_BURST_MS);
+        } else if (decision == MOTION_GATE_INACTIVITY) {
+            LOG_INF("IMU inactivity src=0x%02x", src);
+        } else if (is_wake) {
+            LOG_DBG("IMU motion suppressed src=0x%02x score=%dmg", src,
+                    score_mg);
         }
     }
 }

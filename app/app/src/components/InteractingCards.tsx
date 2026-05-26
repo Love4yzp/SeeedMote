@@ -1,32 +1,26 @@
 import { useStore } from '../store';
-import type { ShoeInfo } from '../types';
 
 const PICKUP_WINDOW_S = 30;
 
-function fmtAge(receivedAt: number): string {
-  const delta = Math.max(0, Math.floor(Date.now() / 1000 - receivedAt));
+function fmtAge(receivedAt: number, nowSec: number): string {
+  const delta = Math.max(0, Math.floor(nowSec - receivedAt));
   if (delta < 60) return `${delta}s 前`;
   if (delta < 3600) return `${Math.floor(delta / 60)}m 前`;
   return `${Math.floor(delta / 3600)}h 前`;
 }
 
-interface Props {
-  shoes: Record<string, ShoeInfo>;
-}
-
-export function InteractingCards({ shoes }: Props) {
+export function InteractingCards() {
   const events = useStore((s) => s.events);
-  const now = Date.now() / 1000;
+  const now = useStore((s) => s.nowSec);
 
   const latestByMac = new Map<string, typeof events[0]>();
   const counts = new Map<string, number>();
 
-  // v2: every /event is a pickup pulse — mote firmware only advertises on
-  // motion. Aggregate within the pickup window.
   for (const ev of events) {
     if (now - ev._received_at > PICKUP_WINDOW_S) continue;
-    counts.set(ev.mote_mac, (counts.get(ev.mote_mac) ?? 0) + 1);
-    if (!latestByMac.has(ev.mote_mac)) latestByMac.set(ev.mote_mac, ev);
+    const mac = ev.source.mote_mac;
+    counts.set(mac, (counts.get(mac) ?? 0) + 1);
+    if (!latestByMac.has(mac)) latestByMac.set(mac, ev);
   }
 
   const items = [...latestByMac.entries()];
@@ -36,11 +30,11 @@ export function InteractingCards({ shoes }: Props) {
       <div className="flex justify-between items-end mb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">正在互动</h2>
-          <p className="text-slate-500 text-sm mt-0.5">{PICKUP_WINDOW_S}s pickup window · 实时传感器更新</p>
+          <p className="text-slate-500 text-sm mt-0.5">{PICKUP_WINDOW_S}s 互动窗口 · 商品拿起后实时刷新</p>
         </div>
         <div className="flex gap-2">
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-            正在把玩
+            正在互动
           </span>
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
             已放回
@@ -50,12 +44,12 @@ export function InteractingCards({ shoes }: Props) {
 
       {items.length === 0 ? (
         <div className="text-center py-10 bg-white rounded-xl border border-dashed border-slate-300">
-          <p className="text-slate-400 text-sm">暂无互动 — 等待顾客拿起商品...</p>
+          <p className="text-slate-400 text-sm">暂无互动，等待顾客拿起商品</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map(([mac, ev]) => {
-            const meta = shoes[mac];
+            const meta = ev.item;
             const count = counts.get(mac) ?? 0;
             return (
               <div
@@ -65,13 +59,13 @@ export function InteractingCards({ shoes }: Props) {
               >
                 <div className="flex justify-between items-start mb-3">
                   <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center text-xl"
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-black"
                     style={{ backgroundColor: '#f0fdf4', color: '#0FAE3C' }}
                   >
-                    ⚡
+                    ON
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                    {mac.slice(-4)}
+                  <span className="text-[10px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-100">
+                    {ev.action_label}
                   </span>
                 </div>
 
@@ -80,11 +74,11 @@ export function InteractingCards({ shoes }: Props) {
                     {meta ? (
                       <img
                         src={`/assets/${meta.image.replace('assets/', '')}`}
-                        alt={meta.sku}
+                        alt={meta.name}
                         className="w-12 h-9 object-contain"
                       />
                     ) : (
-                      <span className="text-lg">👟</span>
+                      <span className="text-[10px] font-bold text-slate-400">未登记</span>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -92,7 +86,7 @@ export function InteractingCards({ shoes }: Props) {
                       {meta?.sku ?? '未登记'}
                     </h3>
                     <p className="text-xs text-slate-500 truncate mt-0.5">
-                      {meta ? meta.name : `mote ${mac.slice(-6)}`}
+                      {meta ? meta.name : ev.item_label}
                     </p>
                     {meta && (
                       <p className="text-xs text-slate-400 mt-0.5">{meta.color} · ¥{meta.price}</p>
@@ -100,13 +94,13 @@ export function InteractingCards({ shoes }: Props) {
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="text-2xl font-extrabold text-slate-800 leading-none">{count}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">events</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">互动次数</div>
                   </div>
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
-                  <span className="text-[11px] font-semibold" style={{ color: '#0FAE3C' }}>PICKED UP</span>
-                  <span className="text-[10px] text-slate-400">{fmtAge(ev._received_at)}</span>
+                  <span className="text-[11px] font-semibold" style={{ color: '#0FAE3C' }}>商品被拿起</span>
+                  <span className="text-[10px] text-slate-400">{fmtAge(ev._received_at, now)}</span>
                 </div>
               </div>
             );

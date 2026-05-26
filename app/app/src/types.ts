@@ -1,11 +1,3 @@
-export interface MotionEvent {
-  mote_mac: string;
-  gw_id: string;
-  rssi: number;
-  packet_id: number;
-  _received_at: number;
-}
-
 export interface GatewayStatus {
   gw_id: string;
   online: boolean;
@@ -21,7 +13,23 @@ export interface ShoeInfo {
   image: string;
 }
 
+export interface InteractionEvent {
+  action: 'picked_up';
+  action_label: string;
+  item_label: string;
+  registered: boolean;
+  item: ShoeInfo | null;
+  source: {
+    mote_mac: string;
+    packet_id: number;
+    rssi: number;
+    gw_id: string;
+  };
+  _received_at: number;
+}
+
 export type WsMessage =
-  | { type: 'snapshot'; events: MotionEvent[]; gateways: Record<string, GatewayStatus>; total: number; connected: boolean; mock: boolean }
-  | { type: 'event'; payload: MotionEvent }
-  | { type: 'gateway'; gwId: string; payload: GatewayStatus };
+  | { type: 'snapshot'; events: InteractionEvent[]; gateways: Record<string, GatewayStatus>; total: number; connected: boolean; mock: boolean }
+  | { type: 'event'; payload: InteractionEvent }
+  | { type: 'gateway'; gwId: string; payload: GatewayStatus }
+  | { type: 'transport'; connected: boolean };

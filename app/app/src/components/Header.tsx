@@ -20,17 +20,16 @@ function StatItem({ label, value, valueClass = 'text-slate-700' }: StatItemProps
 }
 
 export function Header() {
-  const { brokerConnected, wsConnected, gateways, total, mock, events } = useStore();
+  const { brokerConnected, wsConnected, gateways, total, mock, events, nowSec } = useStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const gwList = Object.values(gateways);
   const onlineGws = gwList.filter((g) => g.online).length;
   const gwValue = gwList.length ? `${onlineGws}/${gwList.length}` : '—';
-  const now = Date.now() / 1000;
   const activePickups = new Set(
     events
-      .filter((ev) => now - ev._received_at <= PICKUP_WINDOW_S)
-      .map((ev) => ev.mote_mac),
+      .filter((ev) => nowSec - ev._received_at <= PICKUP_WINDOW_S)
+      .map((ev) => ev.source.mote_mac),
   ).size;
   const transportConnected = wsConnected && brokerConnected;
 
@@ -53,17 +52,17 @@ export function Header() {
           {/* Stats */}
           <div className="hidden md:flex items-center gap-8">
             <StatItem
-              label="Active Pickups"
+              label="正在互动"
               value={String(activePickups)}
               valueClass="text-slate-700"
             />
             <StatItem
-              label="Gateways Online"
+              label="网关在线"
               value={gwValue}
               valueClass={onlineGws > 0 ? 'text-slate-700' : 'text-red-500'}
             />
             <StatItem
-              label="Events"
+              label="互动次数"
               value={String(total)}
               valueClass="text-slate-700"
             />

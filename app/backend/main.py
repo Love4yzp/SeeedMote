@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from mqtt_client import MqttClient
+from semantic_events import to_interaction_event, to_interaction_events
 from settings import Settings
 from store import EventStore
 
@@ -40,11 +41,15 @@ async def broadcast(msg: dict) -> None:
 
 
 async def _emit_event(ev: dict) -> None:
-    await broadcast({"type": "event", "payload": ev})
+    await broadcast({"type": "event", "payload": to_interaction_event(ev, shoes)})
 
 
 async def _emit_gateway(gw_id: str, status: dict) -> None:
     await broadcast({"type": "gateway", "gwId": gw_id, "payload": status})
+
+
+async def _emit_transport(connected: bool) -> None:
+    await broadcast({"type": "transport", "connected": connected})
 
 
 # ── Gateway reaper ──────────────────────────────────────────────────────────
@@ -81,16 +86,21 @@ _MOCK_TIMELINE: list[tuple[float, int]] = [
 ]
 _MOCK_CYCLE = 30.0
 _MOCK_RSSI = {0: -58, 1: -62, 2: -70}
+_MOCK_BOOT_RSSI = -50
 
 
 async def _run_mock() -> None:
     pid_per_mac: dict[str, int] = {}
 
-    gw_entry = store.touch_gateway(_MOCK_GW, rssi=-50)
+    gw_entry = store.touch_gateway(_MOCK_GW, rssi=_MOCK_BOOT_RSSI)
     await _emit_gateway(_MOCK_GW, gw_entry)
 
     while True:
         cycle_start = asyncio.get_event_loop().time()
+
+        gw_entry = store.touch_gateway(_MOCK_GW, rssi=_MOCK_BOOT_RSSI)
+        await _emit_gateway(_MOCK_GW, gw_entry)
+
         for delay, mac_idx in _MOCK_TIMELINE:
             await asyncio.sleep(max(0.0, cycle_start + delay - asyncio.get_event_loop().time()))
             mac = _MOCK_MACS[mac_idx]
@@ -136,6 +146,7 @@ async def lifespan(app: FastAPI):
             loop=loop,
             on_event=_emit_event,
             on_gateway=_emit_gateway,
+            on_transport=_emit_transport,
         )
         source.start()
 
@@ -161,7 +172,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         events, gateways, total = store.snapshot()
         await ws.send_text(json.dumps({
             "type": "snapshot",
-            "events": events,
+            "events": to_interaction_events(events, shoes),
             "gateways": gateways,
             "total": total,
             "connected": source.is_connected() if source else settings.mock,
@@ -217,6 +228,7 @@ async def update_config(cfg: MqttConfigIn) -> dict:
         loop=loop,
         on_event=_emit_event,
         on_gateway=_emit_gateway,
+        on_transport=_emit_transport,
     )
     source.start()
     return {"ok": True}

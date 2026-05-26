@@ -1,36 +1,42 @@
 import { useStore } from '../store';
-import type { ShoeInfo } from '../types';
 
-function fmtAge(ts: number): string {
-  const delta = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+function fmtAge(ts: number, nowSec: number): string {
+  const delta = Math.max(0, Math.floor(nowSec - ts));
   if (delta < 60) return `${delta}s 前`;
   if (delta < 3600) return `${Math.floor(delta / 60)}m 前`;
   return `${Math.floor(delta / 3600)}h 前`;
 }
 
-interface Props {
-  shoes: Record<string, ShoeInfo>;
-}
-
-export function Totals({ shoes }: Props) {
+export function Totals() {
   const events = useStore((s) => s.events);
+  const total = useStore((s) => s.total);
+  const nowSec = useStore((s) => s.nowSec);
 
   const counts = new Map<string, number>();
   const latest = new Map<string, number>();
+  const latestEvent = new Map<string, typeof events[0]>();
   for (const ev of events) {
-    counts.set(ev.mote_mac, (counts.get(ev.mote_mac) ?? 0) + 1);
-    latest.set(ev.mote_mac, Math.max(latest.get(ev.mote_mac) ?? 0, ev._received_at));
+    const mac = ev.source.mote_mac;
+    counts.set(mac, (counts.get(mac) ?? 0) + 1);
+    latest.set(mac, Math.max(latest.get(mac) ?? 0, ev._received_at));
+    if (!latestEvent.has(mac)) latestEvent.set(mac, ev);
   }
 
   const rows = [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([mac, n]) => ({ mac, n, meta: shoes[mac], lat: latest.get(mac) ?? 0 }));
+    .map(([mac, n]) => ({ mac, n, ev: latestEvent.get(mac), lat: latest.get(mac) ?? 0 }));
+
+  const buffered = events.length;
+  const subtitle =
+    buffered < total
+      ? `最近 ${buffered} 条事件（会话累计 ${total}）`
+      : `本次会话累计 ${total} 条`;
 
   return (
     <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
         <h2 className="font-bold text-slate-800">累计互动</h2>
-        <p className="text-xs text-slate-500 mt-0.5">本次会话内，按事件数排序</p>
+        <p className="text-xs text-slate-500 mt-0.5">{subtitle}，按互动次数排序</p>
       </div>
 
       {rows.length === 0 ? (
@@ -42,17 +48,17 @@ export function Totals({ shoes }: Props) {
               <tr>
                 <th className="px-5 py-3 font-semibold">SKU</th>
                 <th className="px-5 py-3 font-semibold">名称</th>
-                <th className="px-5 py-3 font-semibold text-right">事件数</th>
-                <th className="px-5 py-3 font-semibold">最近活动</th>
+                <th className="px-5 py-3 font-semibold text-right">互动次数</th>
+                <th className="px-5 py-3 font-semibold">最近互动</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map(({ mac, n, meta, lat }, idx) => (
+              {rows.map(({ mac, n, ev, lat }, idx) => (
                 <tr key={mac} className="hover:bg-slate-50/80 transition-colors group">
                   <td className="px-5 py-3 font-semibold text-slate-900">
-                    {meta?.sku ?? '未登记'}
+                    {ev?.item?.sku ?? '未登记'}
                   </td>
-                  <td className="px-5 py-3 text-slate-600">{meta?.name ?? mac}</td>
+                  <td className="px-5 py-3 text-slate-600">{ev?.item?.name ?? ev?.item_label ?? '未登记设备'}</td>
                   <td className="px-5 py-3 text-right">
                     <span
                       className="font-bold text-base"
@@ -61,7 +67,7 @@ export function Totals({ shoes }: Props) {
                       {n}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-slate-400 text-xs">{fmtAge(lat)}</td>
+                  <td className="px-5 py-3 text-slate-400 text-xs">{fmtAge(lat, nowSec)}</td>
                 </tr>
               ))}
             </tbody>

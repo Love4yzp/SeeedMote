@@ -8,6 +8,7 @@ export function useWebSocket() {
   const setGateway = useStore((s) => s.setGateway);
   const applySnapshot = useStore((s) => s.applySnapshot);
   const setWsConnected = useStore((s) => s.setWsConnected);
+  const setBrokerConnected = useStore((s) => s.setBrokerConnected);
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -33,6 +34,8 @@ export function useWebSocket() {
           addEvent(msg.payload);
         } else if (msg.type === 'gateway') {
           setGateway(msg.gwId, msg.payload);
+        } else if (msg.type === 'transport') {
+          setBrokerConnected(msg.connected);
         }
       };
 
@@ -63,5 +66,5 @@ export function useWebSocket() {
         ws.close();
       }
     };
-  }, [addEvent, setGateway, applySnapshot, setWsConnected]);
+  }, [addEvent, setGateway, applySnapshot, setWsConnected, setBrokerConnected]);
 }

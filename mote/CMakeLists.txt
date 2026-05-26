@@ -11,4 +11,5 @@ project(mote_motion_nrf52840)
 target_sources(app PRIVATE
     src/main.c
     src/cfg_svc.c
+    src/motion_gate.c
 )
