@@ -95,7 +95,13 @@ static uint8_t bthome_pid;
 #define LSM6DSL_TAP_CFG_WAKE         0xF0u
 #define LSM6DSL_WAKE_UP_THS_94MG     0x03u
 #define LSM6DSL_WAKE_UP_DUR_80MS     0x21u
-#define LSM6DSL_MD1_CFG_WAKE_INACT   0xA0u
+/* LSM6DSL/LSM6DS3TR-C MD1_CFG: bit7=INT1_INACT_STATE, bit5=INT1_WU. */
+#define LSM6DSL_MD1_CFG_INT1_INACT_STATE BIT(7)
+#define LSM6DSL_MD1_CFG_INT1_WU          BIT(5)
+#define LSM6DSL_MD1_CFG_WAKE_INACT       (LSM6DSL_MD1_CFG_INT1_INACT_STATE | \
+                                           LSM6DSL_MD1_CFG_INT1_WU)
+BUILD_ASSERT(LSM6DSL_MD1_CFG_WAKE_INACT == 0xA0u,
+             "MD1_CFG must route inactivity + wake-up to INT1");
 
 /* ---- Devicetree --------------------------------------------------------- */
 
@@ -120,6 +126,7 @@ enum adv_state {
 static enum adv_state adv_state = ADV_IDLE;
 static bool motion_active;
 static char bt_name[sizeof("SEEED-FFFFFF")];
+static K_MUTEX_DEFINE(adv_mutex);
 
 static const uint8_t adv_flags[] = {
     BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR,
@@ -255,10 +262,21 @@ static void stop_advertising(void)
 
 static int start_bthome_burst(uint8_t moving, int32_t duration_ms)
 {
-    fill_bthome_payload(moving);
+    k_mutex_lock(&adv_mutex, K_FOREVER);
+
+    if (adv_state == ADV_CONNECTED) {
+        k_mutex_unlock(&adv_mutex);
+        LOG_INF("connected; suppressing BTHome burst moving=%u", moving);
+        return -EALREADY;
+    }
+
     cancel_config_led();
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
+    fill_bthome_payload(moving);
+    if (moving) {
+        led_pulse_event();
+    }
 
     stop_advertising();
 
@@ -268,6 +286,7 @@ static int start_bthome_burst(uint8_t moving, int32_t duration_ms)
     if (rc) {
         LOG_ERR("bt_le_adv_start burst failed: %d", rc);
         adv_state = ADV_IDLE;
+        k_mutex_unlock(&adv_mutex);
         return rc;
     }
 
@@ -275,11 +294,19 @@ static int start_bthome_burst(uint8_t moving, int32_t duration_ms)
     k_work_schedule(&burst_done_work, K_MSEC(duration_ms));
     LOG_INF("BTHome burst started moving=%u packet_id=%u",
             payload.moving, payload.packet_id);
+    k_mutex_unlock(&adv_mutex);
     return 0;
 }
 
 static int enter_config_window(void)
 {
+    k_mutex_lock(&adv_mutex, K_FOREVER);
+
+    if (adv_state == ADV_CONNECTED) {
+        k_mutex_unlock(&adv_mutex);
+        return 0;
+    }
+
     cancel_config_led();
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
@@ -292,6 +319,7 @@ static int enter_config_window(void)
     if (rc) {
         LOG_ERR("bt_le_adv_start config window failed: %d", rc);
         adv_state = ADV_IDLE;
+        k_mutex_unlock(&adv_mutex);
         return rc;
     }
 
@@ -300,11 +328,13 @@ static int enter_config_window(void)
     k_work_schedule(&config_led_work, K_MSEC(CONFIG_LED_INTERVAL_MS));
     k_work_schedule(&config_timeout_work, K_MSEC(CONFIG_WINDOW_MS));
     LOG_INF("config window opened for %d ms", CONFIG_WINDOW_MS);
+    k_mutex_unlock(&adv_mutex);
     return 0;
 }
 
 static void enter_idle(void)
 {
+    k_mutex_lock(&adv_mutex, K_FOREVER);
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
     cancel_config_led();
@@ -312,6 +342,7 @@ static void enter_idle(void)
     adv_state = ADV_IDLE;
     motion_active = false;
     LOG_INF("advertising idle");
+    k_mutex_unlock(&adv_mutex);
 }
 
 static void burst_done_handler(struct k_work *work)
@@ -330,12 +361,15 @@ static void config_led_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
+    k_mutex_lock(&adv_mutex, K_FOREVER);
     if (adv_state != ADV_CONFIG_WINDOW) {
+        k_mutex_unlock(&adv_mutex);
         return;
     }
 
     led_config_tick();
     k_work_schedule(&config_led_work, K_MSEC(CONFIG_LED_INTERVAL_MS));
+    k_mutex_unlock(&adv_mutex);
 }
 
 static void bt_connected(struct bt_conn *conn, uint8_t err)
@@ -346,12 +380,15 @@ static void bt_connected(struct bt_conn *conn, uint8_t err)
     }
 
     (void)conn;
+    k_mutex_lock(&adv_mutex, K_FOREVER);
+    k_timer_stop(&led_off_timer);
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
     cancel_config_led();
     adv_state = ADV_CONNECTED;
     gpio_pin_set_dt(&led, 1);
     LOG_INF("BLE connected");
+    k_mutex_unlock(&adv_mutex);
 }
 
 static void bt_disconnected(struct bt_conn *conn, uint8_t reason)
@@ -496,12 +533,7 @@ static void state_machine_task(void *p1, void *p2, void *p3)
             motion_active = true;
             LOG_INF("IMU WAKE_UP src=0x%02x -> event packet_id=%u",
                     src, (uint8_t)(bthome_pid + 1));
-            if (adv_state == ADV_CONNECTED) {
-                LOG_INF("connected; suppressing event advertising");
-            } else {
-                led_pulse_event();
-                (void)start_bthome_burst(1, EVENT_BURST_MS);
-            }
+            (void)start_bthome_burst(1, EVENT_BURST_MS);
         }
 
         if (is_inact && motion_active) {
