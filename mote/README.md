@@ -6,7 +6,7 @@
 **Board**: Seeed XIAO nRF52840 Sense (`xiao_ble/nrf52840/sense`)
 **Status**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动,静默时不广播;boot 发 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。Release 默认 RTT 日志,`./dev mote build --debug` 打开 USB CDC。
 
-LED 交互:boot 白色三闪,IMU IRQ 黄色短闪,事件广播绿色短闪,配置窗口蓝色心跳,Web BT 已连接常亮青色。
+LED 交互:boot 白色短闪一次;release 待机灭灯,动作事件真正广播时绿色短闪;配置窗口蓝色 5s 慢闪;Web BT 已连接青色 2s 慢闪。debug 固件额外用黄色短闪显示 IMU IRQ。
 
 ## BTHome 广播对象
 

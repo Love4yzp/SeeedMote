@@ -72,8 +72,10 @@ static uint8_t bthome_pid;
 #define EVENT_BURST_MS               (EVENT_BURST_COUNT * EVENT_BURST_INTERVAL_MS)
 #define BOOT_HEARTBEAT_MS            150
 #define CONFIG_WINDOW_MS             30000
-#define CONFIG_LED_INTERVAL_MS       2000
-#define CONFIG_LED_ON_MS             20
+#define CONFIG_LED_INTERVAL_MS       5000
+#define CONFIG_LED_ON_MS             30
+#define CONNECTED_LED_INTERVAL_MS    2000
+#define CONNECTED_LED_ON_MS          80
 #define MOTION_COOLDOWN_MS           2000
 #define MOTION_MIN_SCORE_MG          90
 #define MOTION_SAMPLE_COUNT          4
@@ -181,10 +183,12 @@ static const struct bt_le_adv_param config_adv_param =
 static void burst_done_handler(struct k_work *work);
 static void config_timeout_handler(struct k_work *work);
 static void config_led_handler(struct k_work *work);
+static void connected_led_handler(struct k_work *work);
 
 static K_WORK_DELAYABLE_DEFINE(burst_done_work, burst_done_handler);
 static K_WORK_DELAYABLE_DEFINE(config_timeout_work, config_timeout_handler);
 static K_WORK_DELAYABLE_DEFINE(config_led_work, config_led_handler);
+static K_WORK_DELAYABLE_DEFINE(connected_led_work, connected_led_handler);
 
 /* ---- LED ---------------------------------------------------------------- */
 
@@ -226,22 +230,29 @@ static void led_pulse(enum led_color color, k_timeout_t on_time)
 
 static void led_pulse_event(void)
 {
-    led_pulse(LED_COLOR_GREEN, K_MSEC(70));
+    led_pulse(LED_COLOR_GREEN, K_MSEC(80));
 }
 
+#if defined(CONFIG_USB_DEVICE_STACK)
 static void led_pulse_imu_irq(void)
 {
     led_pulse(LED_COLOR_YELLOW, K_MSEC(25));
 }
+#endif
 
 static void led_config_tick(void)
 {
     led_pulse(LED_COLOR_BLUE, K_MSEC(CONFIG_LED_ON_MS));
 }
 
-/* One-time boot indicator: 3 short blinks before BLE/IMU init. After this,
- * LED patterns are: IMU IRQ=yellow tick, event=green pulse,
- * config window=blue tick every 2s, connected=solid cyan. */
+static void led_connected_tick(void)
+{
+    led_pulse(LED_COLOR_CYAN, K_MSEC(CONNECTED_LED_ON_MS));
+}
+
+/* One-time boot indicator before BLE/IMU init. After this, release LED
+ * patterns are user-level only: event=green pulse, config window=blue sparse
+ * tick, connected=cyan sparse tick. Debug builds also show IMU IRQ yellow. */
 static void led_init_and_boot_blink(void)
 {
     if (!gpio_is_ready_dt(&led_red) ||
@@ -258,12 +269,9 @@ static void led_init_and_boot_blink(void)
     }
     leds_ready = true;
 
-    for (int i = 0; i < 3; i++) {
-        led_set_color(LED_COLOR_WHITE);
-        k_msleep(80);
-        led_set_color(LED_COLOR_OFF);
-        k_msleep(120);
-    }
+    led_set_color(LED_COLOR_WHITE);
+    k_msleep(80);
+    led_set_color(LED_COLOR_OFF);
 }
 
 /* ---- BLE helpers -------------------------------------------------------- */
@@ -310,6 +318,12 @@ static void cancel_config_led(void)
     led_set_color(LED_COLOR_OFF);
 }
 
+static void cancel_connected_led(void)
+{
+    (void)k_work_cancel_delayable(&connected_led_work);
+    led_set_color(LED_COLOR_OFF);
+}
+
 static void stop_advertising(void)
 {
     int rc = bt_le_adv_stop();
@@ -330,6 +344,7 @@ static int start_bthome_burst(uint8_t moving, int32_t duration_ms)
     }
 
     cancel_config_led();
+    cancel_connected_led();
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
     fill_bthome_payload(moving);
@@ -367,6 +382,7 @@ static int enter_config_window(void)
     }
 
     cancel_config_led();
+    cancel_connected_led();
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
 
@@ -397,6 +413,7 @@ static void enter_idle(void)
     (void)k_work_cancel_delayable(&config_timeout_work);
     (void)k_work_cancel_delayable(&burst_done_work);
     cancel_config_led();
+    cancel_connected_led();
     stop_advertising();
     adv_state = ADV_IDLE;
     LOG_INF("advertising idle");
@@ -430,6 +447,21 @@ static void config_led_handler(struct k_work *work)
     k_mutex_unlock(&adv_mutex);
 }
 
+static void connected_led_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    k_mutex_lock(&adv_mutex, K_FOREVER);
+    if (adv_state != ADV_CONNECTED) {
+        k_mutex_unlock(&adv_mutex);
+        return;
+    }
+
+    led_connected_tick();
+    k_work_schedule(&connected_led_work, K_MSEC(CONNECTED_LED_INTERVAL_MS));
+    k_mutex_unlock(&adv_mutex);
+}
+
 static void bt_connected(struct bt_conn *conn, uint8_t err)
 {
     if (err) {
@@ -444,7 +476,8 @@ static void bt_connected(struct bt_conn *conn, uint8_t err)
     (void)k_work_cancel_delayable(&burst_done_work);
     cancel_config_led();
     adv_state = ADV_CONNECTED;
-    led_set_color(LED_COLOR_CYAN);
+    led_connected_tick();
+    k_work_schedule(&connected_led_work, K_MSEC(CONNECTED_LED_INTERVAL_MS));
     LOG_INF("BLE connected");
     k_mutex_unlock(&adv_mutex);
 }
@@ -644,7 +677,9 @@ static void state_machine_task(void *p1, void *p2, void *p3)
         struct motion_sample samples[MOTION_SAMPLE_COUNT];
 
         k_sem_take(&wake_sem, K_FOREVER);
+#if defined(CONFIG_USB_DEVICE_STACK)
         led_pulse_imu_irq();
+#endif
 
         if (imu_read_reg(LSM6DSL_REG_WAKE_UP_SRC, &src)) {
             continue;
