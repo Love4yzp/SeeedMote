@@ -170,20 +170,22 @@ def expanded_ports(port: str | None) -> list[str]:
 def touch_1200_baud(ports: list[str]) -> None:
     if not ports:
         return
-    try:
-        import serial  # type: ignore
-    except ImportError:
-        print("pyserial is not installed; skipping 1200-baud bootloader touch.")
-        return
+    import termios
 
     for port in ports:
         try:
             print(f"1200-baud touch -> {port}")
-            handle = serial.Serial(port, 1200)
+            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            try:
+                attrs = termios.tcgetattr(fd)
+                attrs[4] = termios.B1200
+                attrs[5] = termios.B1200
+                termios.tcsetattr(fd, termios.TCSANOW, attrs)
+            finally:
+                os.close(fd)
             time.sleep(0.05)
-            handle.close()
-        except Exception:
-            pass
+        except OSError as exc:
+            print(f"  skip {port}: {exc}")
 
 
 def wait_for_volume(volume: str, seconds: float) -> bool:
@@ -193,6 +195,32 @@ def wait_for_volume(volume: str, seconds: float) -> bool:
             return True
         time.sleep(0.3)
     return Path(volume).is_dir()
+
+
+def wait_for_volume_gone(volume: str, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not Path(volume).is_dir():
+            return True
+        time.sleep(0.3)
+    return not Path(volume).is_dir()
+
+
+def copy_uf2_to_volume(uf2: Path, volume: str) -> None:
+    dest = Path(volume) / uf2.name
+    last_error: OSError | None = None
+    for attempt in (1, 2):
+        try:
+            shutil.copyfile(uf2, dest)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt == 1:
+                time.sleep(0.5)
+                continue
+            raise
+    assert last_error is not None
+    raise last_error
 
 
 def mote_flash(args: argparse.Namespace) -> None:
@@ -205,7 +233,7 @@ def mote_flash(args: argparse.Namespace) -> None:
         for port in ports or [DEFAULT_PORT_GLOB]:
             print(f"1200-baud touch -> {port}")
         print(f"wait for volume: {args.volume}")
-        run_command(["cp", "-X", str(uf2), f"{args.volume}/"], dry_run=True)
+        print(f"$ python: shutil.copyfile({rel(uf2)!r}, {args.volume + '/' + uf2.name!r})")
         return
 
     touch_1200_baud(ports)
@@ -223,7 +251,15 @@ def mote_flash(args: argparse.Namespace) -> None:
     if not uf2.exists():
         raise SystemExit(f"UF2 not found: {uf2}")
 
-    run_command(["cp", "-X", str(uf2), f"{args.volume}/"])
+    uf2_size = uf2.stat().st_size
+    copy_uf2_to_volume(uf2, args.volume)
+    print(f"copied {uf2_size} bytes -> {args.volume}/{uf2.name}")
+
+    print(f"Waiting for bootloader to accept firmware (volume {args.volume} should unmount)...")
+    if wait_for_volume_gone(args.volume, 10):
+        print("flash OK: bootloader processed UF2 and rebooted.")
+    else:
+        print(f"WARN: {args.volume} still mounted after 10s; firmware may not have been accepted.")
 
 
 def resolve_log_port(port: str | None) -> str:

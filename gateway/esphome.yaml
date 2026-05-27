@@ -49,6 +49,14 @@ mqtt:
 esp32_ble_tracker:
   scan_parameters:
     active: false
+    # The mote only carries BTHome service data during a ~500ms event burst
+    # (5 packets @ 100ms), then drops it for the 30s config window. The ESPHome
+    # default scan (interval 320ms / window 30ms = ~9% duty) frequently misses
+    # the entire burst -> intermittent MQTT. Near-continuous scan (90% duty)
+    # makes each burst near-certain to be caught; the 10ms gap per cycle leaves
+    # the shared radio room for WiFi/MQTT coexistence on the single ESP32-S3 antenna.
+    interval: 100ms
+    window: 90ms
   on_ble_advertise:
     then:
       - lambda: |-
@@ -92,6 +100,20 @@ esp32_ble_tracker:
             for (char c : x.address_str()) {
               if (c != ':') mac_key += (char)::tolower((unsigned char)c);
             }
+
+            // Per-gateway dedup. The mote sends each event as a 5-packet
+            // burst sharing one packet_id; with the scan window now wide
+            // enough to catch several of them, suppress republishing a
+            // packet_id we already forwarded for this mac. packet_id is
+            // monotonic per mote, so comparing against the last value we saw
+            // is enough — consecutive bursts (and a reboot's reset to 1)
+            // always differ. Cross-gateway dedup still belongs consumer-side
+            // on (mac, packet_id): other gateways forward the same id with
+            // their own rssi, which is intended.
+            static std::map<std::string, uint8_t> last_pid;
+            auto seen = last_pid.find(mac_key);
+            if (seen != last_pid.end() && seen->second == packet_id) continue;
+            last_pid[mac_key] = packet_id;
 
             // Topic split: moving=1 is a motion event; moving=0 is the
             // boot heartbeat ("/online" lets the consumer mark first/return
