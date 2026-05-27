@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import glob
 import os
 import shlex
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -22,7 +22,6 @@ DEFAULT_BOARD = "xiao_ble/nrf52840/sense"
 DEFAULT_BUILD_DIR = "build_uf2"
 DEFAULT_VOLUME = "/Volumes/XIAO-SENSE"
 DEFAULT_PORT_GLOB = "/dev/cu.usbmodem*"
-PLATFORMIO_ESPTOOL_PACKAGE = Path.home() / ".platformio" / "packages" / "tool-esptoolpy"
 
 
 def rel(path: Path | str) -> str:
@@ -62,13 +61,36 @@ def run_command_for_gateway(command: list[str], *, cwd: Path = ROOT, env: dict[s
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
-    proc = subprocess.run(command, cwd=cwd, env=merged_env, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, command, proc.stdout, proc.stderr)
+
+    proc = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=merged_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+    tail: deque[str] = deque(maxlen=200)
+
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line, end="")
+            tail.append(line)
+        returncode = proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise SystemExit(130)
+
+    if returncode != 0:
+        output = "".join(tail)
+        raise subprocess.CalledProcessError(returncode, command, output, "")
 
 
 def is_esptoolpy_corruption_error(error_text: str | None) -> bool:
@@ -87,16 +109,11 @@ def repair_esptoolpy_if_needed(error: subprocess.CalledProcessError) -> bool:
     if not is_esptoolpy_corruption_error(combined):
         return False
 
-    if PLATFORMIO_ESPTOOL_PACKAGE.exists():
-        print(f"Detected broken {PLATFORMIO_ESPTOOL_PACKAGE}; deleting and retrying...")
-        try:
-            shutil.rmtree(PLATFORMIO_ESPTOOL_PACKAGE)
-        except OSError as exc:
-            print(f"Unable to remove {PLATFORMIO_ESPTOOL_PACKAGE}: {exc}")
-            return False
-    else:
-        print(f"{PLATFORMIO_ESPTOOL_PACKAGE} is missing; retrying download.")
-    return True
+    print(
+        "PlatformIO reported the pioarduino tool-esptoolpy package warning, "
+        "but deleting that package does not fix this platform release; not retrying."
+    )
+    return False
 
 
 def ncs_env(ncs_version: str) -> dict[str, str]:

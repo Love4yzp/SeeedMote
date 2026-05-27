@@ -175,6 +175,7 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 | `CONFIG_PM=y` 在 nRF52840 + NCS v2.9.2 被静默丢弃 | `PM depends on HAS_PM`,但 nRF52 SoC 树没 `select HAS_PM`(只 nRF54H 有);.config 既不为 y 也不为 n | 不写 `CONFIG_PM=y`(idle thread 默认 WFI 就够 System ON sleep);`CONFIG_PM_DEVICE=y` 仍独立有效 |
 | LSM6DSL Stage 2 自管 INT1 时没有事件 | `CONFIG_LSM6DSL_TRIGGER_GLOBAL_THREAD=y` 会让 Zephyr 驱动把 INT1 配成 data-ready 路由,和 WAKE_UP/INACTIVITY 抢同一根 `irq-gpios` | 删掉 trigger Kconfig,应用层用 `I2C_DT_SPEC_GET(IMU_NODE)` 直接写 WAKE_UP 寄存器,自己挂 `GPIO_DT_SPEC_GET(IMU_NODE, irq_gpios)` 回调 |
 | `bt_set_name("SEEED-xxxxxx")` 编译/运行不生效 | Zephyr 默认设备名是静态 Kconfig 字符串 | `prj.conf` 加 `CONFIG_BT_DEVICE_NAME_DYNAMIC=y`;adv data 的 Complete Local Name 仍要用运行时 `bt_name` 更新 `data_len` |
+| ESPHome 2026.5.1 / pioarduino 55.03.38-1 编译 gateway 时反复报 `tool-esptoolpy` 不是 Python project | pioarduino 的 `tool-esptoolpy` 包是 PlatformIO metadata 包,但 `penv_setup.py` 仍尝试 `uv pip install -e` 该目录 | 这是非致命 warning,build 仍可成功;删 `~/.platformio/packages/tool-esptoolpy` 会重下同样内容,不能修 |
 
 新行格式:`坑 | 触发条件 | 修复`。**追加到表尾,不要重排或删行**。
 
