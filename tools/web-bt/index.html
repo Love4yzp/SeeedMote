@@ -69,7 +69,8 @@
       }
 
       button,
-      input {
+      input,
+      select {
         font: inherit;
       }
 
@@ -213,13 +214,19 @@
         margin-bottom: 8px;
       }
 
-      .preset-grid {
+      .preset-grid,
+      .scan-mode-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 10px;
       }
 
-      .preset input {
+      .scan-mode-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .preset input,
+      .scan-mode input {
         position: absolute;
         clip-path: inset(50%);
         width: 1px;
@@ -228,7 +235,8 @@
         white-space: nowrap;
       }
 
-      .preset label {
+      .preset label,
+      .scan-mode label {
         min-height: 120px;
         margin: 0;
         border: 1px solid var(--line);
@@ -239,23 +247,31 @@
         color: var(--ink);
       }
 
-      .preset input:focus-visible + label {
+      .scan-mode label {
+        min-height: 104px;
+      }
+
+      .preset input:focus-visible + label,
+      .scan-mode input:focus-visible + label {
         outline: 3px solid #0f5f4c;
         outline-offset: 3px;
       }
 
-      .preset input:checked + label {
+      .preset input:checked + label,
+      .scan-mode input:checked + label {
         border-color: var(--accent);
         background: #eaf6ef;
       }
 
-      .preset-title {
+      .preset-title,
+      .scan-title {
         display: block;
         font-size: 18px;
         margin-bottom: 6px;
       }
 
-      .preset-copy {
+      .preset-copy,
+      .scan-copy {
         display: block;
         color: var(--muted);
         font-size: 13px;
@@ -298,7 +314,8 @@
         gap: 12px;
       }
 
-      input[type="number"] {
+      input[type="number"],
+      input[type="text"] {
         width: 100%;
         min-height: 48px;
         border: 1px solid #96a49f;
@@ -307,6 +324,11 @@
         background: #fff;
         color: var(--ink);
         font-size: 16px;
+      }
+
+      input:disabled {
+        background: #eef2ee;
+        color: #7a8581;
       }
 
       input:user-invalid,
@@ -391,6 +413,7 @@
         .shell,
         .steps,
         .preset-grid,
+        .scan-mode-grid,
         .field-grid {
           grid-template-columns: 1fr;
         }
@@ -413,6 +436,7 @@
           <p class="intro">现场技术员工具。打开 mote 的蓝灯配置窗口后，用 Chrome 直连设备蓝牙并保存运动触发灵敏度。</p>
           <div class="status-bar" aria-live="polite">
             <span class="pill" id="browser-status">检测浏览器</span>
+            <span class="pill" id="bluetooth-status">检测蓝牙</span>
             <span class="pill warn" id="connection-status">未连接</span>
           </div>
         </div>
@@ -435,6 +459,57 @@
             <span>保存成功后点读取配置。重启后再次读取，应保持同一参数。</span>
           </div>
         </div>
+      </section>
+
+      <section class="panel panel-body" aria-label="扫描设置">
+        <fieldset>
+          <legend>扫描模式</legend>
+          <div class="scan-mode-grid" role="radiogroup" aria-describedby="scan-mode-help scan-summary">
+            <div class="scan-mode">
+              <input id="scan-compatible" name="scan-mode" type="radio" value="compatible" />
+              <label for="scan-compatible">
+                <span class="scan-title">兼容</span>
+                <span class="scan-copy">显示附近设备。只有名称过滤扫不到旧固件时再使用。</span>
+              </label>
+            </div>
+            <div class="scan-mode">
+              <input id="scan-name" name="scan-mode" type="radio" value="name" checked />
+              <label for="scan-name">
+                <span class="scan-title">名称</span>
+                <span class="scan-copy">推荐默认。只显示名称以 SEEED- 开头的设备。</span>
+              </label>
+            </div>
+            <div class="scan-mode">
+              <input id="scan-service" name="scan-mode" type="radio" value="service" />
+              <label for="scan-service">
+                <span class="scan-title">Service</span>
+                <span class="scan-copy">按配置服务 UUID 过滤，只适合已广播该 UUID 的新固件。</span>
+              </label>
+            </div>
+            <div class="scan-mode">
+              <input id="scan-custom" name="scan-mode" type="radio" value="custom" />
+              <label for="scan-custom">
+                <span class="scan-title">自定义</span>
+                <span class="scan-copy">手动指定名称前缀或用于扫描的 service UUID。</span>
+              </label>
+            </div>
+          </div>
+          <span class="hint" id="scan-mode-help">Web Bluetooth 扫描必须由点击触发；这里保存的是下次点击连接时使用的过滤策略。</span>
+        </fieldset>
+
+        <div class="field-grid" id="custom-scan-fields">
+          <div>
+            <label for="scan-name-prefix">自定义名称前缀</label>
+            <input id="scan-name-prefix" name="scanNamePrefix" type="text" value="SEEED-" autocomplete="off" enterkeyhint="next" aria-describedby="scan-name-prefix-hint" />
+            <span class="hint" id="scan-name-prefix-hint">留空表示不按名称过滤。</span>
+          </div>
+          <div>
+            <label for="scan-service-uuid">自定义扫描 service UUID</label>
+            <input id="scan-service-uuid" name="scanServiceUuid" type="text" value="a8b00001-3e8e-4b8f-9a1c-9b1f5e88aa00" autocomplete="off" enterkeyhint="done" aria-describedby="scan-service-uuid-hint" />
+            <span class="hint" id="scan-service-uuid-hint">只影响扫描过滤；连接后仍读取 SeeedMote 配置服务。</span>
+          </div>
+        </div>
+        <span class="engineering" id="scan-summary">当前：按名称前缀 SEEED- 过滤。</span>
       </section>
 
       <div class="shell">
@@ -564,6 +639,14 @@
         custom: { label: "自定义" },
       };
 
+      const DEFAULT_SCAN = {
+        mode: "name",
+        namePrefix: "SEEED-",
+        serviceUuid: UUIDS.service,
+      };
+
+      const SCAN_STORAGE_KEY = "seeedmote.scanSettings.v2";
+
       const state = {
         device: null,
         server: null,
@@ -574,6 +657,7 @@
 
       const els = {
         browserStatus: document.querySelector("#browser-status"),
+        bluetoothStatus: document.querySelector("#bluetooth-status"),
         connectionStatus: document.querySelector("#connection-status"),
         connect: document.querySelector("#connect"),
         form: document.querySelector("#config-form"),
@@ -588,6 +672,10 @@
         deviceName: document.querySelector("#device-name"),
         log: document.querySelector("#log"),
         presets: [...document.querySelectorAll('input[name="preset"]')],
+        scanModes: [...document.querySelectorAll('input[name="scan-mode"]')],
+        scanNamePrefix: document.querySelector("#scan-name-prefix"),
+        scanServiceUuid: document.querySelector("#scan-service-uuid"),
+        scanSummary: document.querySelector("#scan-summary"),
       };
 
       function toHex(value) {
@@ -603,6 +691,11 @@
       function log(message) {
         const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
         els.log.textContent = `[${ts}] ${message}\n${els.log.textContent}`;
+      }
+
+      function setBluetoothAvailability(available) {
+        els.bluetoothStatus.textContent = available ? "蓝牙可用" : "蓝牙不可用";
+        els.bluetoothStatus.className = available ? "pill ok" : "pill warn";
       }
 
       function setConnectionState(connected) {
@@ -660,23 +753,137 @@
         syncSummary();
       }
 
+      function selectedScanMode() {
+        return els.scanModes.find((input) => input.checked)?.value || DEFAULT_SCAN.mode;
+      }
+
+      function normalizeBluetoothService(value) {
+        const raw = value.trim();
+        if (!raw) return "";
+        if (/^0x[0-9a-f]{4}$/i.test(raw)) return Number.parseInt(raw.slice(2), 16);
+        if (/^[0-9a-f]{4}$/i.test(raw)) return Number.parseInt(raw, 16);
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+          return raw.toLowerCase();
+        }
+        if (/^[a-z][a-z0-9_]*$/i.test(raw)) return raw;
+        throw new Error("自定义 service UUID 格式无效。请使用 128-bit UUID、0x180F、180F 或标准 service 名称。");
+      }
+
+      function currentScanSettings() {
+        return {
+          mode: selectedScanMode(),
+          namePrefix: els.scanNamePrefix.value.trim(),
+          serviceUuid: els.scanServiceUuid.value.trim(),
+        };
+      }
+
+      function saveScanSettings() {
+        try {
+          localStorage.setItem(SCAN_STORAGE_KEY, JSON.stringify(currentScanSettings()));
+        } catch (error) {
+          // Storage is optional; scanning still works in private or locked-down browsers.
+        }
+      }
+
+      function loadScanSettings() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(SCAN_STORAGE_KEY) || "{}");
+          const mode = ["compatible", "name", "service", "custom"].includes(parsed.mode)
+            ? parsed.mode
+            : DEFAULT_SCAN.mode;
+          for (const input of els.scanModes) input.checked = input.value === mode;
+          els.scanNamePrefix.value = typeof parsed.namePrefix === "string" ? parsed.namePrefix : DEFAULT_SCAN.namePrefix;
+          els.scanServiceUuid.value = typeof parsed.serviceUuid === "string" ? parsed.serviceUuid : DEFAULT_SCAN.serviceUuid;
+        } catch (error) {
+          for (const input of els.scanModes) input.checked = input.value === DEFAULT_SCAN.mode;
+          els.scanNamePrefix.value = DEFAULT_SCAN.namePrefix;
+          els.scanServiceUuid.value = DEFAULT_SCAN.serviceUuid;
+        }
+      }
+
+      function syncScanUi() {
+        const mode = selectedScanMode();
+        const custom = mode === "custom";
+        els.scanNamePrefix.disabled = !custom;
+        els.scanServiceUuid.disabled = !custom;
+
+        if (mode === "compatible") {
+          els.scanSummary.textContent = "当前：兼容模式，弹窗显示附近设备，连接后校验配置服务。设备很多时请切回名称模式。";
+        } else if (mode === "name") {
+          els.scanSummary.textContent = `当前：按名称前缀 ${DEFAULT_SCAN.namePrefix} 过滤。`;
+        } else if (mode === "service") {
+          els.scanSummary.textContent = `当前：按配置 service ${UUIDS.service} 过滤。`;
+        } else {
+          const prefix = els.scanNamePrefix.value.trim() || "无名称过滤";
+          const service = els.scanServiceUuid.value.trim() || "无 service 过滤";
+          els.scanSummary.textContent = `当前：自定义过滤，名称=${prefix}，service=${service}。`;
+        }
+      }
+
+      function buildScanRequest() {
+        const mode = selectedScanMode();
+        const optionalServices = [UUIDS.service];
+
+        if (mode === "compatible") {
+          return {
+            options: { acceptAllDevices: true, optionalServices },
+            label: "兼容模式",
+            hint: "请在弹窗里选择名称以 SEEED- 开头的 mote。",
+          };
+        }
+
+        if (mode === "name") {
+          return {
+            options: { filters: [{ namePrefix: DEFAULT_SCAN.namePrefix }], optionalServices },
+            label: "名称过滤",
+            hint: `只显示名称以 ${DEFAULT_SCAN.namePrefix} 开头的设备。`,
+          };
+        }
+
+        if (mode === "service") {
+          return {
+            options: { filters: [{ services: [UUIDS.service] }], optionalServices },
+            label: "Service 过滤",
+            hint: "只显示广告里声明 SeeedMote 配置服务的设备。",
+          };
+        }
+
+        const filter = {};
+        const namePrefix = els.scanNamePrefix.value.trim();
+        const service = normalizeBluetoothService(els.scanServiceUuid.value);
+        if (namePrefix) filter.namePrefix = namePrefix;
+        if (service) filter.services = [service];
+        if (!filter.namePrefix && !filter.services) {
+          throw new Error("自定义扫描至少需要填写名称前缀或 service UUID。");
+        }
+        return {
+          options: { filters: [filter], optionalServices },
+          label: "自定义过滤",
+          hint: "使用页面里填写的名称前缀 / service UUID 过滤设备。",
+        };
+      }
+
       async function connect() {
         if (!navigator.bluetooth) {
           log("当前浏览器不支持 Web Bluetooth。请使用 Android Chrome 或桌面 Chrome。");
           return;
         }
 
-        log("正在请求蓝牙设备。请在弹窗里选择 SeeedMote。");
-        state.device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [UUIDS.service] }],
-          optionalServices: [UUIDS.service],
-        });
+        const request = buildScanRequest();
+        saveScanSettings();
+        log(`正在请求蓝牙设备：${request.label}。${request.hint}`);
+        state.device = await navigator.bluetooth.requestDevice(request.options);
         state.device.addEventListener("gattserverdisconnected", () => {
           setConnectionState(false);
           log("设备已断开。若配置窗口超时，请重新触发 mote 后再连接。");
         });
         state.server = await state.device.gatt.connect();
-        state.service = await state.server.getPrimaryService(UUIDS.service);
+        try {
+          state.service = await state.server.getPrimaryService(UUIDS.service);
+        } catch (error) {
+          state.device.gatt.disconnect();
+          throw new Error("所选设备没有 SeeedMote 配置服务。请确认已选择 SEEED- 设备，且蓝色配置窗口仍在闪烁。");
+        }
         state.chars.ths = await state.service.getCharacteristic(UUIDS.ths);
         state.chars.dur = await state.service.getCharacteristic(UUIDS.dur);
         state.chars.reboot = await state.service.getCharacteristic(UUIDS.reboot);
@@ -765,6 +972,33 @@
         }
       }
 
+      async function initBluetoothDiagnostics() {
+        log(`页面来源：${location.protocol}//${location.host || location.pathname}，secureContext=${window.isSecureContext ? "yes" : "no"}`);
+        if (location.protocol === "file:") {
+          log("当前是 file:// 打开。若扫描异常，请改用 http://localhost:8765/ 或 HTTPS 页面。");
+        }
+        if (!navigator.bluetooth) {
+          setBluetoothAvailability(false);
+          return;
+        }
+        if (!navigator.bluetooth.getAvailability) {
+          els.bluetoothStatus.textContent = "蓝牙状态未知";
+          els.bluetoothStatus.className = "pill";
+          return;
+        }
+        try {
+          setBluetoothAvailability(await navigator.bluetooth.getAvailability());
+          navigator.bluetooth.addEventListener("availabilitychanged", (event) => {
+            setBluetoothAvailability(event.value);
+            log(event.value ? "蓝牙适配器已可用。" : "蓝牙适配器不可用。请检查系统蓝牙和 Chrome 权限。");
+          });
+        } catch (error) {
+          els.bluetoothStatus.textContent = "蓝牙状态未知";
+          els.bluetoothStatus.className = "pill warn";
+          log(`蓝牙状态检测失败：${error?.message || error}`);
+        }
+      }
+
       els.browserStatus.textContent = navigator.bluetooth ? "Chrome Web Bluetooth 可用" : "请使用 Chrome";
       els.browserStatus.className = navigator.bluetooth ? "pill ok" : "pill warn";
       els.connect.addEventListener("click", () => connect().catch(handleError));
@@ -781,6 +1015,18 @@
           applyValues(preset.ths, preset.dur);
         });
       });
+      els.scanModes.forEach((input) => {
+        input.addEventListener("change", () => {
+          syncScanUi();
+          saveScanSettings();
+        });
+      });
+      for (const input of [els.scanNamePrefix, els.scanServiceUuid]) {
+        input.addEventListener("input", () => {
+          syncScanUi();
+          saveScanSettings();
+        });
+      }
       for (const input of [els.ths, els.dur]) {
         input.addEventListener("input", () => {
           input.setCustomValidity("");
@@ -789,9 +1035,12 @@
         });
       }
 
+      loadScanSettings();
+      syncScanUi();
       initValidationFallback();
+      initBluetoothDiagnostics();
       syncSummary();
-      log("准备就绪。请在 mote 蓝灯闪烁时连接。");
+      log("准备就绪。默认只扫描 SEEED- 设备；若旧固件没有名称，再切到兼容模式。");
     </script>
   </body>
 </html>

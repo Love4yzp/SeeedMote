@@ -10,8 +10,30 @@ to the mote's GATT service over local Bluetooth.
 2. Boot the mote or trigger one motion event.
 3. Wait for the blue config-window blink.
 4. Click `连接 SeeedMote`.
-5. Select the SeeedMote device in Chrome's Bluetooth picker.
+5. Keep the default **名称** scan mode and select the `SEEED-xxxxxx` device in
+   Chrome's Bluetooth picker. If no `SEEED-` device appears but the mote is in
+   the blue config window, switch to **兼容** mode and retry.
 6. Read, save, restore defaults, or reboot.
+
+## Scan modes
+
+The page defaults to **名称** mode because dense Bluetooth environments make a
+broad picker hard to use. It filters Chrome's picker to devices whose advertised
+name starts with `SEEED-`, then verifies that the selected device exposes the
+SeeedMote config GATT service.
+
+Other modes are for fallback field debugging or future firmware variants:
+
+| Mode | Browser filter | When to use |
+|---|---|---|
+| 名称 | `namePrefix: "SEEED-"` | Default, current firmware name format |
+| Service | config service UUID | New firmware that advertises the UUID |
+| 兼容 | `acceptAllDevices: true` | Old/unknown firmware when name filtering fails |
+| 自定义 | custom `namePrefix` and/or service UUID | Temporary field variants |
+
+Custom scan settings are saved in the technician's browser. They only affect
+the next Web Bluetooth picker request; the page still connects to the fixed
+SeeedMote config GATT service after a device is selected.
 
 The sensitivity presets map to the same THS/DUR bytes exposed in the advanced
 section:
