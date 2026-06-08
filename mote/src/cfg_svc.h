@@ -4,10 +4,9 @@
  * Exposes IMU wake-up tuning (THS, DUR) and a reboot command to a Web BT
  * client during the 30 s connectable config window. See `tools/web-bt/`.
  *
- * Backing storage is RAM-only: a reboot reverts to compile-time defaults
- * (LSM6DSL_WAKE_UP_THS_DEFAULT / _DUR_DEFAULT in main.c). Persistence via
- * Zephyr's settings subsystem is a follow-up; pm_static.yml already carves
- * the partition.
+ * Backing storage is Zephyr settings/NVS: writes update the live IMU
+ * registers and persist across reboot. Missing settings fall back to
+ * LSM6DSL_WAKE_UP_THS_DEFAULT / _DUR_DEFAULT in main.c.
  */
 
 #pragma once
