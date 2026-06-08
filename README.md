@@ -15,7 +15,7 @@
 端到端骨架打通并已验证(2026-05):
 
 - **Mote**: LSM6DS3TR-C WAKE_UP / INACTIVITY 硬件中断驱动。静默时不广播;boot 发一段 `moving=0` BTHome heartbeat,动作触发发 `moving=1` burst,随后打开 30s connectable 配置窗口。BTHome v2 Service Data UUID=`0xFCD2`,对象精简为 `packet_id / moving`。
-- **Gateway**: ESPHome raw `esp32_ble_tracker.on_ble_advertise` passive scan,按 Service Data UUID `0xFCD2` 过滤,解析 `packet_id + moving`,发布 MQTT `/event` 或 `/online`。配置在 `gateway/esphome.yaml`,无需自研 C 固件。
+- **Gateway**: ESPHome raw `esp32_ble_tracker.on_ble_advertise` passive scan,按 Service Data UUID `0xFCD2` 过滤,解析 `packet_id + moving`,发布 MQTT `/event` 或 `/seen`。配置在 `gateway/esphome.yaml`,无需自研 C 固件。
 - **架构原则**: **事件型**(event-driven),不是数据型 IoT。Mote 业务动作才发事件、gateway 中继、broker 不持久化、消费侧 `(mote_mac, packet_id)` 去重。控制平面允许 boot heartbeat 和 30s Web BT 配置窗口。
 - **未做**: System OFF 低功耗、消息认证 / allowlist、battery 字段(留 v2)。
 
@@ -57,14 +57,14 @@ seeedmote-v2/
 ```
 
 `tools/web-bt/` 是 Chrome / Android 直连 mote GATT service 的现场配置工具。
-它刻意独立于 `app/`,因为 v2 不做 gateway MQTT 下行。
+它刻意独立于 `app/`,因为 v2 不做 Mote 的 gateway MQTT 下行;Gateway 自身只保留 `locate` 这类现场运维命令。
 
 ## 架构简则
 
 1. **Mote 固件**: 只改 `mote/`，走 `./dev mote build / flash`
 2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `./dev gateway run`;可读别名在 `app/gateways.yaml` 映射
 3. **BTHome 是契约**: 对象映射见 `AGENTS.md §5`，mote 和 gateway 必须同步
-4. **事件型**: 无周期 telemetry，无 raw 数据流，boot heartbeat 仅用于上线/配置窗口发现
+4. **事件型**: 无周期 telemetry，无 raw 数据流，boot heartbeat 仅用于 seen/配置窗口发现
 
 ## For AI agents
 

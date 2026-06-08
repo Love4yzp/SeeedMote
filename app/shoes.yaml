@@ -1,6 +1,6 @@
 # mote_mac (lowercase hex, no separators) → shoe metadata.
 # Keys MUST match the <mac> segment of the gateway MQTT topic
-# `seeedmote/<mac>/event` (权威定义见 AGENTS.md §5.2 + app/README.md).
+# `seeedmote/mote/<mac>/event` (权威定义见 AGENTS.md §5.2 + app/README.md).
 #
 # Unmapped mote_macs surface as a "未登记" placeholder card in the UI; add an
 # entry here to give them a SKU and image. No firmware change required.

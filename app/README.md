@@ -6,20 +6,24 @@ FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型
 ```
 ┌─────────┐  BLE adv   ┌───────────┐  MQTT pub                ┌────────┐  WS push  ┌──────────────┐
 │  Mote   │ ─────────▶ │  Gateway  │ ───────────────────────▶ │ Broker │ ────────▶ │  FastAPI     │ ──▶ React UI
-│ (shoe)  │  BTHome    │ ESP32-S3  │  seeedmote/<mac>/event   └────────┘           └──────────────┘
-└─────────┘            └───────────┘  seeedmote/<mac>/online
+│ (shoe)  │  BTHome    │ ESP32-S3  │  seeedmote/mote/<mac>/event   └────────┘           └──────────────┘
+└─────────┘            └───────────┘  seeedmote/mote/<mac>/seen
 ```
 
 ## MQTT 契约(权威:`AGENTS.md §5.2`)
 
 | Topic | 触发 | Payload |
 |---|---|---|
-| `seeedmote/<mac>/event`  | mote 动作 | `{"packet_id": N, "rssi": -55, "gw": "<gw_id>"}` |
-| `seeedmote/<mac>/online` | mote boot 心跳 | `{"rssi": -55, "gw": "<gw_id>"}` |
+| `seeedmote/mote/<mac>/event` | mote 动作 | `{"packet_id": N, "rssi": -55, "gw": "<gw_id>"}` |
+| `seeedmote/mote/<mac>/seen` | mote boot 心跳 | `{"rssi": -55, "gw": "<gw_id>", "reason": "boot"}` |
+| `seeedmote/gateway/<gw_id>/status` | gateway 启动/重连 | `{"gw": "<gw_id>", "version": "2026.06.08"}` |
+| `seeedmote/gateway/cmd` | app 定位 gateway | `{"gw": "<gw_id>", "cmd": "locate"}` |
 
 - `<mac>` 是 lowercase 无冒号 MAC。
 - Backend 通过 topic 段抽 `mote_mac`,通过 payload `gw` 字段推 gateway 在线
-  (boot/event 任意一帧到达 → gateway "online";沉默 `GATEWAY_ONLINE_TTL_S` 后翻 offline)。
+  (`seen`/`event` 任意一帧到达 → gateway "online";沉默 `GATEWAY_ONLINE_TTL_S` 后翻 offline)。
+- Gateway status 只承载 SeeedMote gateway 配置版本,不消费 ESPHome discovery/inventory topic。
+- Gateway command 只用于 Gateway 自身运维,当前只支持 `locate` 闪烁板载 LED,不转发给 Mote。
 - Gateway 固件使用 ESPHome `name_add_mac_suffix: true`,`gw` 是类似
   `seeedmote-gw-a1b2c3` 的稳定设备 ID。用户可读位置名通过 `gateways.yaml`
   映射,不需要重烧 gateway 固件。
@@ -78,7 +82,7 @@ FastAPI 启动时如果发现 `app/app/dist`,会把构建后的静态 app 挂载
 | Path | Purpose |
 |------|---------|
 | `backend/main.py`        | FastAPI + WebSocket 广播 + mock 协程 + gateway reaper |
-| `backend/mqtt_client.py` | paho-mqtt 订阅,topic → store,推回调 |
+| `backend/mqtt_client.py` | paho-mqtt 订阅/命令发布,topic → store,推回调 |
 | `backend/semantic_events.py` | raw gateway event → retail `InteractionEvent` |
 | `backend/store.py`       | dedup + 历史缓冲 + 派生 gateway 状态 |
 | `backend/settings.py`    | Pydantic Settings(env 配置) |
