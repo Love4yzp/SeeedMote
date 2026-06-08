@@ -3,57 +3,199 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SeeedMote Web BT Config</title>
+    <title>SeeedMote Config</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c7c64'/%3E%3Cpath d='M9 17h14M12 12h8M13 22h6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
     <style>
       :root {
         color-scheme: light;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f8fafc;
-        color: #0f172a;
+        --ink: #16201d;
+        --muted: #52615c;
+        --line: #d8e0dc;
+        --paper: #fbfcf8;
+        --panel: #ffffff;
+        --accent: #1c7c64;
+        --accent-strong: #0f5f4c;
+        --danger: #b42318;
+        --warning: #a15c00;
+        --ok: #11743d;
+        --shadow: 0 18px 48px rgba(22, 32, 29, 0.1);
+        font-family: "Avenir Next", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
         min-height: 100vh;
+        background:
+          linear-gradient(90deg, rgba(28, 124, 100, 0.08) 1px, transparent 1px) 0 0 / 32px 32px,
+          linear-gradient(0deg, rgba(28, 124, 100, 0.06) 1px, transparent 1px) 0 0 / 32px 32px,
+          var(--paper);
       }
 
       main {
-        max-width: 760px;
+        width: min(980px, calc(100% - 32px));
         margin: 0 auto;
-        padding: 32px 20px;
+        padding: 28px 0 40px;
       }
 
       header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 24px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
       }
 
       h1 {
-        margin: 0;
-        font-size: 24px;
-        line-height: 1.2;
+        font-size: clamp(28px, 4vw, 46px);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        min-height: 48px;
+        border: 0;
+        border-radius: 6px;
+        padding: 11px 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.46;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid #0f5f4c;
+        outline-offset: 3px;
+      }
+
+      .primary {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .primary:hover:not(:disabled) {
+        background: var(--accent-strong);
+      }
+
+      .secondary {
+        background: #e8eee9;
+        color: var(--ink);
+      }
+
+      .danger {
+        background: #f9ddd8;
+        color: var(--danger);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 16px;
       }
 
       .panel {
-        background: #fff;
-        border: 1px solid #dbe3ef;
+        background: var(--panel);
+        border: 1px solid var(--line);
         border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .panel-body {
         padding: 20px;
-        margin-bottom: 16px;
       }
 
-      .status {
+      .status-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: #fff;
+        color: var(--muted);
         font-size: 13px;
-        color: #475569;
+        font-weight: 700;
       }
 
-      .grid {
+      .pill.ok {
+        border-color: rgba(17, 116, 61, 0.28);
+        color: var(--ok);
+      }
+
+      .pill.warn {
+        border-color: rgba(161, 92, 0, 0.32);
+        color: var(--warning);
+      }
+
+      .intro {
+        color: var(--muted);
+        line-height: 1.55;
+        margin-top: 10px;
+        max-width: 640px;
+      }
+
+      .steps {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .step {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fbfdfb;
+      }
+
+      .step strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .step span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      form {
+        display: grid;
+        gap: 18px;
       }
 
       fieldset {
@@ -65,76 +207,201 @@
       legend,
       label {
         display: block;
-        font-size: 12px;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+        margin-bottom: 8px;
+      }
+
+      .preset-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .preset input {
+        position: absolute;
+        clip-path: inset(50%);
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .preset label {
+        min-height: 120px;
+        margin: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        background: #fbfdfb;
+        cursor: pointer;
+        color: var(--ink);
+      }
+
+      .preset input:focus-visible + label {
+        outline: 3px solid #0f5f4c;
+        outline-offset: 3px;
+      }
+
+      .preset input:checked + label {
+        border-color: var(--accent);
+        background: #eaf6ef;
+      }
+
+      .preset-title {
+        display: block;
+        font-size: 18px;
         margin-bottom: 6px;
       }
 
-      input {
+      .preset-copy {
+        display: block;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .engineering {
+        display: block;
+        margin-top: 10px;
+        color: var(--accent-strong);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      details {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdfb;
+      }
+
+      summary {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        cursor: pointer;
+        font-weight: 800;
+      }
+
+      .advanced-body {
+        border-top: 1px solid var(--line);
+        padding: 14px;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      input[type="number"] {
         width: 100%;
         min-height: 48px;
-        box-sizing: border-box;
-        border: 1px solid #9aa8ba;
+        border: 1px solid #96a49f;
         border-radius: 6px;
         padding: 10px 12px;
+        background: #fff;
+        color: var(--ink);
         font-size: 16px;
       }
 
-      input:focus-visible,
-      button:focus-visible {
-        outline: 3px solid #2563eb;
-        outline-offset: 2px;
+      input:user-invalid,
+      input.user-invalid-fallback {
+        border-color: var(--danger);
+        background: #fff3f0;
       }
 
-      button {
-        min-height: 44px;
-        border: 0;
-        border-radius: 6px;
-        padding: 10px 14px;
+      .hint,
+      .error {
+        display: block;
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .hint {
+        color: var(--muted);
+      }
+
+      .error {
+        display: none;
+        color: var(--danger);
         font-weight: 700;
-        cursor: pointer;
       }
 
-      button.primary {
-        background: #0f766e;
-        color: #fff;
-      }
-
-      button.secondary {
-        background: #e2e8f0;
-        color: #0f172a;
-      }
-
-      button.danger {
-        background: #dc2626;
-        color: #fff;
-      }
-
-      button:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
+      input:user-invalid ~ .error,
+      input.user-invalid-fallback ~ .error {
+        display: block;
       }
 
       .actions {
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
-        margin-top: 16px;
+      }
+
+      .side {
+        display: grid;
+        gap: 16px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 8px;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .metric:last-child {
+        border-bottom: 0;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .metric strong {
+        font-size: 20px;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
       }
 
       pre {
-        min-height: 120px;
+        min-height: 220px;
+        max-height: 380px;
+        overflow: auto;
         margin: 0;
         white-space: pre-wrap;
-        background: #111827;
-        color: #dbeafe;
         border-radius: 8px;
-        padding: 12px;
-        font-size: 12px;
+        background: #14201b;
+        color: #d9f2e4;
+        padding: 14px;
+        font-size: 13px;
         line-height: 1.5;
+      }
+
+      @media (max-width: 780px) {
+        header,
+        .shell,
+        .steps,
+        .preset-grid,
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+
+        header {
+          align-items: stretch;
+        }
+
+        .connect-button {
+          width: 100%;
+        }
       }
     </style>
   </head>
@@ -142,39 +409,144 @@
     <main>
       <header>
         <div>
-          <h1>SeeedMote Config</h1>
-          <div class="status" id="support" aria-live="polite"></div>
+          <h1>SeeedMote 配置</h1>
+          <p class="intro">现场技术员工具。打开 mote 的蓝灯配置窗口后，用 Chrome 直连设备蓝牙并保存运动触发灵敏度。</p>
+          <div class="status-bar" aria-live="polite">
+            <span class="pill" id="browser-status">检测浏览器</span>
+            <span class="pill warn" id="connection-status">未连接</span>
+          </div>
         </div>
-        <button class="primary" id="connect" type="button">Connect</button>
+        <button class="primary connect-button" id="connect" type="button">连接 SeeedMote</button>
       </header>
 
-      <section class="panel">
-        <form id="config-form" action="#" method="post">
-          <fieldset>
-            <legend>Wake tuning</legend>
-            <div class="grid">
-              <div>
-                <label for="ths">Wake threshold THS</label>
-                <input id="ths" name="ths" type="number" min="0" max="63" step="1" inputmode="numeric" />
-              </div>
-              <div>
-                <label for="dur">Wake duration DUR</label>
-                <input id="dur" name="dur" type="number" min="0" max="255" step="1" inputmode="numeric" />
-              </div>
-            </div>
-          </fieldset>
-          <div class="actions">
-            <button class="secondary" id="read" type="button" disabled>Read</button>
-            <button class="primary" id="write" type="submit" disabled>Write</button>
-            <button class="danger" id="reboot" type="button" disabled>Reboot</button>
+      <section class="panel panel-body" aria-label="操作步骤">
+        <h2>连接前检查</h2>
+        <div class="steps">
+          <div class="step">
+            <strong>1. 进入配置窗口</strong>
+            <span>重启 mote 或触发一次 motion。蓝灯闪烁时约 30 秒可连接。</span>
           </div>
-        </form>
+          <div class="step">
+            <strong>2. 使用 Chrome</strong>
+            <span>请用 Android Chrome 或桌面 Chrome。不要使用 iOS Safari 或微信内置浏览器。</span>
+          </div>
+          <div class="step">
+            <strong>3. 保存后复核</strong>
+            <span>保存成功后点读取配置。重启后再次读取，应保持同一参数。</span>
+          </div>
+        </div>
       </section>
 
-      <section class="panel">
-        <label for="log">Log</label>
-        <pre id="log" aria-live="polite"></pre>
-      </section>
+      <div class="shell">
+        <section class="panel panel-body" aria-label="灵敏度配置">
+          <form id="config-form" action="#" method="post">
+            <fieldset>
+              <legend>灵敏度预设</legend>
+              <div class="preset-grid" role="radiogroup" aria-describedby="preset-help">
+                <div class="preset">
+                  <input id="preset-low" name="preset" type="radio" value="low" />
+                  <label for="preset-low">
+                    <span class="preset-title">低</span>
+                    <span class="preset-copy">更不容易误触发，适合震动较多或移动幅度较大的现场。</span>
+                    <span class="engineering">THS=0x06 DUR=0x21</span>
+                  </label>
+                </div>
+                <div class="preset">
+                  <input id="preset-standard" name="preset" type="radio" value="standard" checked />
+                  <label for="preset-standard">
+                    <span class="preset-title">标准</span>
+                    <span class="preset-copy">推荐默认值，适合大多数鞋、包、展品移动检测。</span>
+                    <span class="engineering">THS=0x03 DUR=0x21</span>
+                  </label>
+                </div>
+                <div class="preset">
+                  <input id="preset-high" name="preset" type="radio" value="high" />
+                  <label for="preset-high">
+                    <span class="preset-title">高</span>
+                    <span class="preset-copy">更容易触发，适合轻微移动或需要快速响应的调试场景。</span>
+                    <span class="engineering">THS=0x02 DUR=0x21</span>
+                  </label>
+                </div>
+              </div>
+              <span class="hint" id="preset-help">保存配置会写入 mote 并持久化；重启后仍应保持。</span>
+            </fieldset>
+
+            <details>
+              <summary aria-controls="advanced-body">高级参数 <span id="hex-summary">THS=0x03 DUR=0x21</span></summary>
+              <div class="advanced-body" id="advanced-body">
+                <div class="field-grid">
+                  <div>
+                    <label for="ths">Wake threshold THS</label>
+                    <input
+                      id="ths"
+                      name="ths"
+                      type="number"
+                      min="0"
+                      max="63"
+                      step="1"
+                      value="3"
+                      required
+                      inputmode="numeric"
+                      enterkeyhint="next"
+                      aria-describedby="ths-hint ths-error"
+                    />
+                    <span class="hint" id="ths-hint">范围 0..63。数值越小越容易触发。</span>
+                    <span class="error" id="ths-error">THS 必须是 0 到 63 的整数。</span>
+                  </div>
+                  <div>
+                    <label for="dur">Wake duration DUR</label>
+                    <input
+                      id="dur"
+                      name="dur"
+                      type="number"
+                      min="0"
+                      max="255"
+                      step="1"
+                      value="33"
+                      required
+                      inputmode="numeric"
+                      enterkeyhint="done"
+                      aria-describedby="dur-hint dur-error"
+                    />
+                    <span class="hint" id="dur-hint">范围 0..255。默认 0x21 用于当前事件型检测。</span>
+                    <span class="error" id="dur-error">DUR 必须是 0 到 255 的整数。</span>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div class="actions">
+              <button class="secondary" id="read" type="button" disabled>读取配置</button>
+              <button class="primary" id="write" type="submit" disabled>保存配置</button>
+              <button class="secondary" id="restore" type="button" disabled>恢复默认</button>
+              <button class="danger" id="reboot" type="button" disabled>重启设备</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="side">
+          <section class="panel panel-body" aria-label="当前状态">
+            <h2>当前状态</h2>
+            <div class="metric">
+              <span>设备</span>
+              <strong id="device-name">未连接</strong>
+            </div>
+            <div class="metric">
+              <span>当前配置</span>
+              <strong id="current-config">标准 (THS=0x03, DUR=0x21)</strong>
+            </div>
+            <div class="metric">
+              <span>交付方式</span>
+              <strong>HTTPS 静态页</strong>
+            </div>
+          </section>
+
+          <section class="panel panel-body">
+            <h2>日志</h2>
+            <pre id="log" aria-live="polite"></pre>
+          </section>
+        </aside>
+      </div>
     </main>
 
     <script type="module">
@@ -185,58 +557,125 @@
         reboot: "a8b00004-3e8e-4b8f-9a1c-9b1f5e88aa00",
       };
 
+      const PRESETS = {
+        low: { label: "低", ths: 0x06, dur: 0x21 },
+        standard: { label: "标准", ths: 0x03, dur: 0x21 },
+        high: { label: "高", ths: 0x02, dur: 0x21 },
+        custom: { label: "自定义" },
+      };
+
       const state = {
         device: null,
         server: null,
         service: null,
         chars: {},
+        connected: false,
       };
 
       const els = {
-        support: document.querySelector("#support"),
+        browserStatus: document.querySelector("#browser-status"),
+        connectionStatus: document.querySelector("#connection-status"),
         connect: document.querySelector("#connect"),
         form: document.querySelector("#config-form"),
         read: document.querySelector("#read"),
         write: document.querySelector("#write"),
+        restore: document.querySelector("#restore"),
         reboot: document.querySelector("#reboot"),
         ths: document.querySelector("#ths"),
         dur: document.querySelector("#dur"),
+        hexSummary: document.querySelector("#hex-summary"),
+        currentConfig: document.querySelector("#current-config"),
+        deviceName: document.querySelector("#device-name"),
         log: document.querySelector("#log"),
+        presets: [...document.querySelectorAll('input[name="preset"]')],
       };
+
+      function toHex(value) {
+        return `0x${Number(value).toString(16).toUpperCase().padStart(2, "0")}`;
+      }
+
+      function describeConfig(ths, dur) {
+        const preset = Object.values(PRESETS).find((item) => item.ths === ths && item.dur === dur);
+        const label = preset ? preset.label : PRESETS.custom.label;
+        return `${label} (THS=${toHex(ths)}, DUR=${toHex(dur)})`;
+      }
 
       function log(message) {
         const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
         els.log.textContent = `[${ts}] ${message}\n${els.log.textContent}`;
       }
 
-      function setConnected(connected) {
+      function setConnectionState(connected) {
+        state.connected = connected;
         els.read.disabled = !connected;
         els.write.disabled = !connected;
+        els.restore.disabled = !connected;
         els.reboot.disabled = !connected;
-        els.connect.textContent = connected ? "Reconnect" : "Connect";
+        els.connect.textContent = connected ? "重新连接" : "连接 SeeedMote";
+        els.connectionStatus.textContent = connected ? "已连接" : "未连接";
+        els.connectionStatus.className = connected ? "pill ok" : "pill warn";
+        if (!connected) {
+          els.deviceName.textContent = "未连接";
+        }
+      }
+
+      function syncSummary() {
+        const ths = Number(els.ths.value);
+        const dur = Number(els.dur.value);
+        const valid = els.ths.checkValidity() && els.dur.checkValidity();
+
+        if (Number.isInteger(ths) && Number.isInteger(dur) && valid) {
+          els.hexSummary.textContent = `THS=${toHex(ths)} DUR=${toHex(dur)}`;
+          els.currentConfig.textContent = describeConfig(ths, dur);
+        } else {
+          els.hexSummary.textContent = "参数无效";
+          els.currentConfig.textContent = "参数无效";
+        }
+      }
+
+      function setPresetForValues(ths, dur) {
+        let matched = false;
+        for (const input of els.presets) {
+          const preset = PRESETS[input.value];
+          const checked = preset.ths === ths && preset.dur === dur;
+          input.checked = checked;
+          matched ||= checked;
+        }
+        if (!matched) {
+          for (const input of els.presets) input.checked = false;
+        }
+      }
+
+      function applyValues(ths, dur) {
+        els.ths.value = String(ths);
+        els.dur.value = String(dur);
+        setPresetForValues(ths, dur);
+        syncSummary();
       }
 
       async function connect() {
         if (!navigator.bluetooth) {
-          log("Web Bluetooth is not available. Use Chrome on Android or desktop Chrome.");
+          log("当前浏览器不支持 Web Bluetooth。请使用 Android Chrome 或桌面 Chrome。");
           return;
         }
 
+        log("正在请求蓝牙设备。请在弹窗里选择 SeeedMote。");
         state.device = await navigator.bluetooth.requestDevice({
           filters: [{ services: [UUIDS.service] }],
           optionalServices: [UUIDS.service],
         });
         state.device.addEventListener("gattserverdisconnected", () => {
-          setConnected(false);
-          log("Disconnected");
+          setConnectionState(false);
+          log("设备已断开。若配置窗口超时，请重新触发 mote 后再连接。");
         });
         state.server = await state.device.gatt.connect();
         state.service = await state.server.getPrimaryService(UUIDS.service);
         state.chars.ths = await state.service.getCharacteristic(UUIDS.ths);
         state.chars.dur = await state.service.getCharacteristic(UUIDS.dur);
         state.chars.reboot = await state.service.getCharacteristic(UUIDS.reboot);
-        setConnected(true);
-        log(`Connected to ${state.device.name || state.device.id}`);
+        setConnectionState(true);
+        els.deviceName.textContent = state.device.name || state.device.id;
+        log(`已连接 ${state.device.name || state.device.id}`);
         await readValues();
       }
 
@@ -250,43 +689,99 @@
       }
 
       function parseU8(input, label, max) {
+        input.setCustomValidity("");
         const value = Number(input.value);
         if (!Number.isInteger(value) || value < 0 || value > max) {
-          throw new Error(`${label} must be an integer from 0 to ${max}`);
+          input.setCustomValidity(`${label} 必须是 0 到 ${max} 的整数。`);
+          input.reportValidity();
+          throw new Error(`${label} 参数无效`);
         }
         return value;
       }
 
       async function readValues() {
-        els.ths.value = String(await readU8(state.chars.ths));
-        els.dur.value = String(await readU8(state.chars.dur));
-        log(`Read THS=${els.ths.value}, DUR=${els.dur.value}`);
+        const ths = await readU8(state.chars.ths);
+        const dur = await readU8(state.chars.dur);
+        applyValues(ths, dur);
+        log(`读取成功：${describeConfig(ths, dur)}`);
       }
 
       async function writeValues() {
+        if (!state.connected) {
+          throw new Error("尚未连接设备");
+        }
         const ths = parseU8(els.ths, "THS", 63);
         const dur = parseU8(els.dur, "DUR", 255);
+        els.write.disabled = true;
         await writeU8(state.chars.ths, ths);
         await writeU8(state.chars.dur, dur);
-        log(`Wrote THS=${ths}, DUR=${dur}`);
+        applyValues(ths, dur);
+        log(`保存成功：${describeConfig(ths, dur)}。配置已写入持久存储。`);
+        els.write.disabled = false;
+      }
+
+      async function restoreDefaults() {
+        applyValues(PRESETS.standard.ths, PRESETS.standard.dur);
+        await writeValues();
       }
 
       async function reboot() {
-        if (!confirm("Reboot this mote now?")) return;
+        if (!confirm("确认重启当前 SeeedMote？重启后需要重新连接。")) return;
         await writeU8(state.chars.reboot, 1);
-        log("Reboot command sent");
+        log("已发送重启命令。请等待设备重新进入配置窗口。");
       }
 
-      els.support.textContent = navigator.bluetooth
-        ? "Chrome / Android, connect during the 30s config window"
-        : "Web Bluetooth unavailable in this browser";
-      els.connect.addEventListener("click", () => connect().catch((err) => log(err.message)));
-      els.read.addEventListener("click", () => readValues().catch((err) => log(err.message)));
+      function handleError(error) {
+        const message = error?.message || String(error);
+        if (message.includes("User cancelled") || message.includes("No device selected")) {
+          log("已取消选择设备。");
+          return;
+        }
+        log(`错误：${message}`);
+      }
+
+      function initValidationFallback() {
+        if (CSS.supports("selector(:user-invalid)")) return;
+        for (const input of [els.ths, els.dur]) {
+          input.addEventListener("blur", () => {
+            input.classList.toggle("user-invalid-fallback", !input.checkValidity());
+          });
+          input.addEventListener("input", () => {
+            input.setCustomValidity("");
+            input.classList.remove("user-invalid-fallback");
+          });
+        }
+      }
+
+      els.browserStatus.textContent = navigator.bluetooth ? "Chrome Web Bluetooth 可用" : "请使用 Chrome";
+      els.browserStatus.className = navigator.bluetooth ? "pill ok" : "pill warn";
+      els.connect.addEventListener("click", () => connect().catch(handleError));
+      els.read.addEventListener("click", () => readValues().catch(handleError));
+      els.restore.addEventListener("click", () => restoreDefaults().catch(handleError));
+      els.reboot.addEventListener("click", () => reboot().catch(handleError));
       els.form.addEventListener("submit", (event) => {
         event.preventDefault();
-        writeValues().catch((err) => log(err.message));
+        writeValues().catch(handleError).finally(() => {
+          if (state.connected) els.write.disabled = false;
+        });
       });
-      els.reboot.addEventListener("click", () => reboot().catch((err) => log(err.message)));
+      els.presets.forEach((input) => {
+        input.addEventListener("change", () => {
+          const preset = PRESETS[input.value];
+          applyValues(preset.ths, preset.dur);
+        });
+      });
+      for (const input of [els.ths, els.dur]) {
+        input.addEventListener("input", () => {
+          input.setCustomValidity("");
+          setPresetForValues(Number(els.ths.value), Number(els.dur.value));
+          syncSummary();
+        });
+      }
+
+      initValidationFallback();
+      syncSummary();
+      log("准备就绪。请在 mote 蓝灯闪烁时连接。");
     </script>
   </body>
 </html>

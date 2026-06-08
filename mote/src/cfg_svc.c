@@ -10,9 +10,8 @@
  * CMD currently accepts 0x01 = cold reboot. Reboot is deferred 200 ms so
  * the GATT write response goes out before NVIC reset.
  *
- * Handlers run in the BT RX thread. I2C writes block briefly (<5 ms) but
- * the Zephyr I2C driver mutexes the bus, so racing the IMU read thread is
- * safe.
+ * Handlers run in the BT RX thread. THS/DUR writes update the live IMU
+ * registers and synchronously persist via Zephyr settings/NVS in main.c.
  */
 
 #include <stdint.h>

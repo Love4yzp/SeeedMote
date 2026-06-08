@@ -18,6 +18,7 @@
  */
 
 #include <stdbool.h>
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -30,6 +31,9 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/hci.h>
+#if defined(CONFIG_SETTINGS)
+#include <zephyr/settings/settings.h>
+#endif
 #include <hal/nrf_ficr.h>
 #if defined(CONFIG_USB_DEVICE_STACK)
 #include <zephyr/usb/usb_device.h>
@@ -104,7 +108,7 @@ static uint8_t bthome_pid;
 #define LSM6DSL_CTRL3_C_BDU_IF_INC   (BIT(6) | BIT(2))
 #define LSM6DSL_CTRL6_C_XL_LP        0x10u
 #define LSM6DSL_TAP_CFG_WAKE         0xF0u
-/* Runtime-tunable via cfg_svc (Web BT). Defaults survive until reboot.
+/* Runtime-tunable via cfg_svc (Web BT). Defaults are used until settings load.
  * THS units: ±2g / 64 = 31.25 mg per LSB. 0x03 ≈ 94 mg.
  * DUR layout: bits[6:5]=WAKE_DUR (in 1/ODR units), bits[3:0]=SLEEP_DUR.
  * 0x21 = WAKE_DUR=1 (38 ms @ 26 Hz) + SLEEP_DUR=1 (~20 s before INACT). */
@@ -113,6 +117,12 @@ static uint8_t bthome_pid;
 
 static uint8_t imu_wake_ths = LSM6DSL_WAKE_UP_THS_DEFAULT;
 static uint8_t imu_wake_dur = LSM6DSL_WAKE_UP_DUR_DEFAULT;
+#define CFG_SETTINGS_TREE            "mote/imu"
+#define CFG_SETTINGS_THS             CFG_SETTINGS_TREE "/ths"
+#define CFG_SETTINGS_DUR             CFG_SETTINGS_TREE "/dur"
+#if defined(CONFIG_SETTINGS)
+static bool cfg_settings_ready;
+#endif
 /* LSM6DSL/LSM6DS3TR-C MD1_CFG: bit7=INT1_INACT_STATE, bit5=INT1_WU. */
 #define LSM6DSL_MD1_CFG_INT1_INACT_STATE BIT(7)
 #define LSM6DSL_MD1_CFG_INT1_WU          BIT(5)
@@ -514,11 +524,96 @@ static int imu_write_reg(uint8_t reg, uint8_t value)
 uint8_t imu_get_wake_ths(void) { return imu_wake_ths; }
 uint8_t imu_get_wake_dur(void) { return imu_wake_dur; }
 
+#if defined(CONFIG_SETTINGS)
+static int persist_u8_setting(const char *key, uint8_t value)
+{
+    if (!cfg_settings_ready) {
+        return 0;
+    }
+
+    int rc = settings_save_one(key, &value, sizeof(value));
+
+    if (rc) {
+        LOG_WRN("settings_save_one(%s) failed: %d", key, rc);
+    }
+    return rc;
+}
+
+static int cfg_settings_set(const char *key, size_t len,
+                            settings_read_cb read_cb, void *cb_arg)
+{
+    uint8_t value;
+    ssize_t read_len;
+
+    if (len != sizeof(value)) {
+        return -EINVAL;
+    }
+
+    read_len = read_cb(cb_arg, &value, sizeof(value));
+    if (read_len < 0) {
+        return (int)read_len;
+    }
+    if (read_len != sizeof(value)) {
+        return -EINVAL;
+    }
+
+    if (strcmp(key, "ths") == 0) {
+        if (value > 63u) {
+            return -ERANGE;
+        }
+        imu_wake_ths = value;
+        LOG_INF("loaded THS=0x%02x from settings", value);
+        return 0;
+    }
+    if (strcmp(key, "dur") == 0) {
+        imu_wake_dur = value;
+        LOG_INF("loaded DUR=0x%02x from settings", value);
+        return 0;
+    }
+
+    return -ENOENT;
+}
+
+SETTINGS_STATIC_HANDLER_DEFINE(cfg_imu, CFG_SETTINGS_TREE, NULL,
+                               cfg_settings_set, NULL, NULL);
+
+static void cfg_settings_init(void)
+{
+    int rc = settings_subsys_init();
+
+    if (rc) {
+        LOG_WRN("settings_subsys_init failed: %d", rc);
+        return;
+    }
+
+    cfg_settings_ready = true;
+    rc = settings_load_subtree(CFG_SETTINGS_TREE);
+    if (rc) {
+        LOG_WRN("settings_load_subtree(%s) failed: %d", CFG_SETTINGS_TREE, rc);
+    }
+}
+#else
+static int persist_u8_setting(const char *key, uint8_t value)
+{
+    ARG_UNUSED(key);
+    ARG_UNUSED(value);
+    return 0;
+}
+
+static void cfg_settings_init(void) {}
+#endif
+
 int imu_set_wake_ths(uint8_t value)
 {
+    if (value > 63u) {
+        return -ERANGE;
+    }
+
     int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_THS, value);
+
     if (rc == 0) {
         imu_wake_ths = value;
+        rc = persist_u8_setting(CFG_SETTINGS_THS, value);
     }
     return rc;
 }
@@ -526,8 +621,10 @@ int imu_set_wake_ths(uint8_t value)
 int imu_set_wake_dur(uint8_t value)
 {
     int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_DUR, value);
+
     if (rc == 0) {
         imu_wake_dur = value;
+        rc = persist_u8_setting(CFG_SETTINGS_DUR, value);
     }
     return rc;
 }
@@ -775,6 +872,8 @@ int main(void)
 #else
     LOG_INF("seeedmote-v2 starting (name=%s RTT-only build)", bt_name);
 #endif
+
+    cfg_settings_init();
 
     rc = bt_enable(NULL);
     if (rc) {
