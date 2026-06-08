@@ -22,6 +22,7 @@ settings = Settings()
 store = EventStore()
 ws_clients: set[WebSocket] = set()
 shoes: dict[str, dict] = {}
+gateway_aliases: dict[str, str] = {}
 source: MqttClient | None = None
 
 
@@ -41,11 +42,11 @@ async def broadcast(msg: dict) -> None:
 
 
 async def _emit_event(ev: dict) -> None:
-    await broadcast({"type": "event", "payload": to_interaction_event(ev, shoes)})
+    await broadcast({"type": "event", "payload": to_interaction_event(ev, shoes, gateway_aliases)})
 
 
 async def _emit_gateway(gw_id: str, status: dict) -> None:
-    await broadcast({"type": "gateway", "gwId": gw_id, "payload": status})
+    await broadcast({"type": "gateway", "gwId": gw_id, "payload": _gateway_status_payload(status)})
 
 
 async def _emit_transport(connected: bool) -> None:
@@ -71,7 +72,7 @@ async def _gateway_reaper() -> None:
 # only emits /event on motion, so the mock does the same; there is no
 # `vibration` or `ctr` field in v2.
 
-_MOCK_GW = "seeedmote-gateway"
+_MOCK_GW = "seeedmote-gw-a1b2c3"
 _MOCK_MACS = ["f0e3912cec19", "f0e3912cec20", "f0e3912cec21"]
 _MOCK_TIMELINE: list[tuple[float, int]] = [
     (0.0,  0),
@@ -120,14 +121,46 @@ async def _run_mock() -> None:
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
+def _load_gateway_aliases(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    aliases: dict[str, str] = {}
+    for gw_id, payload in (data.get("gateways") or {}).items():
+        if isinstance(payload, str):
+            alias = payload.strip()
+        elif isinstance(payload, dict):
+            alias = str(payload.get("alias") or "").strip()
+        else:
+            alias = ""
+        if alias:
+            aliases[str(gw_id)] = alias
+    return aliases
+
+
+def _gateway_status_payload(status: dict) -> dict:
+    payload = dict(status)
+    gw_id = str(payload.get("gw_id") or "unknown")
+    payload["alias"] = gateway_aliases.get(gw_id)
+    return payload
+
+
+def _gateway_snapshot_payload(gateways: dict[str, dict]) -> dict[str, dict]:
+    return {gw_id: _gateway_status_payload(status) for gw_id, status in gateways.items()}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global shoes, source
+    global shoes, gateway_aliases, source
 
     with open(settings.shoes_yaml) as f:
         data = yaml.safe_load(f)
     shoes = data.get("shoes", {})
     logger.info("Loaded %d shoes from %s", len(shoes), settings.shoes_yaml)
+
+    gateway_aliases = _load_gateway_aliases(settings.gateways_yaml)
+    logger.info("Loaded %d gateway aliases from %s", len(gateway_aliases), settings.gateways_yaml)
 
     reaper = asyncio.create_task(_gateway_reaper())
 
@@ -172,8 +205,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         events, gateways, total = store.snapshot()
         await ws.send_text(json.dumps({
             "type": "snapshot",
-            "events": to_interaction_events(events, shoes),
-            "gateways": gateways,
+            "events": to_interaction_events(events, shoes, gateway_aliases),
+            "gateways": _gateway_snapshot_payload(gateways),
             "total": total,
             "connected": source.is_connected() if source else settings.mock,
             "mock": settings.mock,

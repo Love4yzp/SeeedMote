@@ -1,8 +1,8 @@
 """MQTT subscriber for the v2 gateway contract.
 
 Topics (gateway publishes, AGENTS.md §5.2):
-  seeedmote/<mac_no_colons>/event   -- motion: {"packet_id": N, "rssi": -55, "gw": "<name>"}
-  seeedmote/<mac_no_colons>/online  -- boot heartbeat: {"rssi": -55, "gw": "<name>"}
+  seeedmote/<mac_no_colons>/event   -- motion: {"packet_id": N, "rssi": -55, "gw": "<gw_id>"}
+  seeedmote/<mac_no_colons>/online  -- boot heartbeat: {"rssi": -55, "gw": "<gw_id>"}
 
 Gateway-level liveness is derived from these messages: whenever any frame
 arrives tagged with `gw`, that gateway is marked online; a reaper task (run

@@ -71,7 +71,12 @@ export function EventStream() {
                           <dt className="text-slate-400">rssi</dt>
                           <dd className="text-slate-600">{ev.source.rssi}</dd>
                           <dt className="text-slate-400">gateway</dt>
-                          <dd className="text-slate-600">{ev.source.gw_id}</dd>
+                          <dd className="text-slate-600">
+                            {ev.source.gw_alias ?? ev.source.gw_id}
+                            {ev.source.gw_alias && (
+                              <span className="block text-slate-400">{ev.source.gw_id}</span>
+                            )}
+                          </dd>
                         </dl>
                       </details>
                     </td>

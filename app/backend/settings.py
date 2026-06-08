@@ -30,3 +30,4 @@ class Settings(BaseSettings):
     port: int = 3001
     mock: bool = False
     shoes_yaml: Path = Path(__file__).parent.parent / "shoes.yaml"
+    gateways_yaml: Path = Path(__file__).parent.parent / "gateways.yaml"

@@ -21,7 +21,7 @@ Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 网
 
 默认空中格式是 **BTHome v2 BLE advertising**。Mote 静默时不广播;boot 和动作事件通过 Service Data UUID `0xFCD2` 广播标准 `packet id` / `moving` 对象。动作/boot 后开放 30s connectable window,供 Web BT 直连配置。
 
-**Gateway 是 ESPHome**:使用 raw `esp32_ble_tracker.on_ble_advertise` passive scan、WiFi STA、MQTT 出口、OTA。无需自研 C 固件。配置即文档:`gateway/esphome.yaml`。
+**Gateway 是 ESPHome**:使用 raw `esp32_ble_tracker.on_ble_advertise` passive scan、WiFi STA、MQTT 出口、OTA。无需自研 C 固件。配置即文档:`gateway/esphome.yaml`。Gateway 固件统一烧录,ESPHome 自动追加 MAC 后缀形成稳定 `gw` ID;业务位置名在消费侧 alias 映射。
 
 ## 事件型(event-driven),不是数据型 IoT
 

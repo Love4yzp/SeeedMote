@@ -20,7 +20,7 @@ Mote 是 west + NCS;Gateway 是 ESPHome YAML。**不要让 AI 自己选轨**。
 ./dev doctor
 ```
 
-`doctor` 会检查 `nrfutil`、`tio`、`esphome`、`gateway/secrets.yaml`、NCS 路径、UF2 卷和当前串口列表。
+`doctor` 会检查 `nrfutil`、`tio`、`esphome`、测试默认 `gateway/secrets.yaml`、NCS 路径、UF2 卷和当前串口列表。
 
 ---
 
@@ -88,7 +88,7 @@ ZEPHYR_BASE=~/ncs/v2.9.2/zephyr nrfutil toolchain-manager launch --ncs-version v
 ```bash
 pip install esphome
 esphome version
-cp gateway/secrets.yaml.example gateway/secrets.yaml       # 填 WiFi/MQTT
+${EDITOR:-vi} gateway/secrets.yaml                         # 可选:修改测试 WiFi/MQTT 默认值
 ```
 
 ### 编译 / 烧录 / 监视
@@ -106,6 +106,10 @@ esphome compile gateway/esphome.yaml
 esphome run gateway/esphome.yaml
 esphome logs gateway/esphome.yaml
 ```
+
+Gateway 使用统一固件。`gateway/esphome.yaml` 通过 `name_add_mac_suffix: true` 自动把 MAC 后缀追加到 ESPHome node name,所以 MQTT payload 里的 `gw` 会是类似 `seeedmote-gw-a1b2c3` 的稳定 ID。用户可读位置名在消费侧 `app/gateways.yaml` 配 alias,不需要重新烧录。
+
+测试阶段 `gateway/secrets.yaml` 已带默认 WiFi/MQTT 值。OTA 不设密码,初始化 fallback AP 也是开放 AP。MQTT username 在启动时自动设为带 MAC 后缀的 gateway ID(例如 `seeedmote-gw-a1b2c3`),不在 secrets 中手填。
 
 ### 烧录方式
 
@@ -162,8 +166,8 @@ esphome logs gateway/esphome.yaml
 烧录两块板后,MQTT broker 应看到 gateway 发布的 SeeedMote 事件:
 
 ```
-seeedmote/f0e3912cec19/online {"rssi":-74,"gw":"seeedmote-gateway"}
-seeedmote/f0e3912cec19/event  {"packet_id":42,"rssi":-68,"gw":"seeedmote-gateway"}
+seeedmote/f0e3912cec19/online {"rssi":-74,"gw":"seeedmote-gw-a1b2c3"}
+seeedmote/f0e3912cec19/event  {"packet_id":42,"rssi":-68,"gw":"seeedmote-gw-a1b2c3"}
 ```
 
 判断好坏:

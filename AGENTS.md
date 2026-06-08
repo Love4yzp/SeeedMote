@@ -30,7 +30,7 @@
 | 对象 | 工具链 | 改什么 |
 |---|---|---|
 | Mote 固件 | west + NCS | `mote/src/*.c`、`mote/prj.conf`、`mote/app.overlay` |
-| Gateway 配置 | ESPHome CLI | `gateway/esphome.yaml`、`gateway/secrets.yaml` |
+| Gateway 配置 | ESPHome CLI | `gateway/esphome.yaml`、`gateway/secrets.yaml`(测试默认值) |
 
 不再有 PIO / ESP-IDF C 固件。
 
@@ -72,7 +72,7 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 **只改** `gateway/esphome.yaml`:
 
 - 加 BTHome sensor → `bthome:` 块里追加 sensor/binary_sensor
-- 改 WiFi/MQTT → `gateway/secrets.yaml`(本地,不提交)
+- 改 WiFi/MQTT → `gateway/secrets.yaml`(当前测试阶段提交默认值;不要放真实生产凭据)
 - 加 ESPHome automation → `on_value:` / `on_state:` blocks
 
 部署:`./dev gateway run`
@@ -124,11 +124,12 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 
 | Topic | 触发 | Payload |
 |---|---|---|
-| `seeedmote/<mac_no_colons>/event` | `moving=1` 的 BTHome 帧 | `{"packet_id": N, "rssi": -55, "gw": "<gw_name>"}` |
-| `seeedmote/<mac_no_colons>/online` | `moving=0` 的 boot heartbeat 帧 | `{"rssi": -55, "gw": "<gw_name>"}` |
+| `seeedmote/<mac_no_colons>/event` | `moving=1` 的 BTHome 帧 | `{"packet_id": N, "rssi": -55, "gw": "<gw_id>"}` |
+| `seeedmote/<mac_no_colons>/online` | `moving=0` 的 boot heartbeat 帧 | `{"rssi": -55, "gw": "<gw_id>"}` |
 
 - `<mac_no_colons>` = 小写无冒号 MAC,e.g. `aabbccddeeff`
-- `<gw_name>` = ESPHome `esphome.name`(每个 gateway 自己的标识)
+- `<gw_id>` = ESPHome `esphome.name` + 自动 MAC 后缀(例如 `seeedmote-gw-a1b2c3`),是稳定 gateway ID;用户可读位置名在消费侧 alias 映射,不靠烧录参数
+- MQTT username 也在 gateway 启动早期自动设为同一个 `<gw_id>`;不要在 `gateway/secrets.yaml` 里维护每台设备的 username
 - **不暴露 `moving` 到 payload** —— gateway 已根据它分流 topic,consumer 无需再看
 - **下行无 MQTT topic** —— 配置走 Web BT 直连
 
