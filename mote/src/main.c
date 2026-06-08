@@ -545,6 +545,10 @@ static int cfg_settings_set(const char *key, size_t len,
     uint8_t value;
     ssize_t read_len;
 
+    if (!key) {
+        return -EINVAL;
+    }
+
     if (len != sizeof(value)) {
         return -EINVAL;
     }

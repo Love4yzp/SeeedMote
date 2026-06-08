@@ -619,6 +619,13 @@
         }
       }
 
+      function setActionButtonsDisabled(disabled) {
+        els.read.disabled = disabled;
+        els.write.disabled = disabled;
+        els.restore.disabled = disabled;
+        els.reboot.disabled = disabled;
+      }
+
       function syncSummary() {
         const ths = Number(els.ths.value);
         const dur = Number(els.dur.value);
@@ -712,12 +719,17 @@
         }
         const ths = parseU8(els.ths, "THS", 63);
         const dur = parseU8(els.dur, "DUR", 255);
-        els.write.disabled = true;
-        await writeU8(state.chars.ths, ths);
-        await writeU8(state.chars.dur, dur);
-        applyValues(ths, dur);
-        log(`保存成功：${describeConfig(ths, dur)}。配置已写入持久存储。`);
-        els.write.disabled = false;
+        setActionButtonsDisabled(true);
+        try {
+          await writeU8(state.chars.ths, ths);
+          await writeU8(state.chars.dur, dur);
+          applyValues(ths, dur);
+          log(`保存成功：${describeConfig(ths, dur)}。配置已写入持久存储。`);
+        } finally {
+          if (state.connected) {
+            setActionButtonsDisabled(false);
+          }
+        }
       }
 
       async function restoreDefaults() {
@@ -761,9 +773,7 @@
       els.reboot.addEventListener("click", () => reboot().catch(handleError));
       els.form.addEventListener("submit", (event) => {
         event.preventDefault();
-        writeValues().catch(handleError).finally(() => {
-          if (state.connected) els.write.disabled = false;
-        });
+        writeValues().catch(handleError);
       });
       els.presets.forEach((input) => {
         input.addEventListener("change", () => {
