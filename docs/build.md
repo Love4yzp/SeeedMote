@@ -126,7 +126,6 @@ esphome logs gateway/esphome.yaml
 ```bash
 ./dev app run
 ./dev app run --mock
-./dev app install
 ```
 
 ---
