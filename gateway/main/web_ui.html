@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SeeedMote Gateway</title>
+<style>
+:root{
+  --ink:#16201d;--muted:#52615c;--line:#d8e0dc;
+  --paper:#fbfcf8;--panel:#fff;--accent:#1c7c64;
+  --ok:#11743d;--danger:#b42318;
+  --shadow:0 8px 24px rgba(22,32,29,.08);
+  font-family:"Avenir Next","Segoe UI",system-ui,sans-serif;
+  color:var(--ink);background:var(--paper);
+}
+*{box-sizing:border-box;margin:0}
+body{min-height:100vh;background:linear-gradient(90deg,rgba(28,124,100,.06) 1px,transparent 1px) 0 0/32px 32px,linear-gradient(0deg,rgba(28,124,100,.04) 1px,transparent 1px) 0 0/32px 32px,var(--paper)}
+main{max-width:480px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:22px;line-height:1.2;margin-bottom:4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:14px;box-shadow:var(--shadow)}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;margin-right:8px;flex-shrink:0}
+.step-title{font-size:15px;font-weight:600;display:flex;align-items:center;margin-bottom:14px}
+.done .step-num{background:var(--ok)}
+.done .step-title::after{content:' ✓';color:var(--ok);margin-left:6px;font-size:14px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:14px;background:#fff}
+input:focus{outline:2px solid var(--accent);border-color:transparent}
+button{padding:10px 18px;border:0;border-radius:6px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s;width:100%}
+button:active{opacity:.7}
+.btn-p{background:var(--accent);color:#fff}
+.btn-s{background:var(--line);color:var(--ink)}
+.btn-d{background:var(--danger);color:#fff}
+.nets{list-style:none;padding:0;max-height:220px;overflow-y:auto;margin:8px 0}
+.nets li{padding:10px 12px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px;transition:background .1s}
+.nets li:hover{background:rgba(28,124,100,.06)}
+.nets .rssi{color:var(--muted);font-size:12px}
+.lock::before{content:"\1F512";font-size:11px;margin-right:4px}
+.msg{font-size:13px;padding:8px 12px;border-radius:6px;margin-top:10px;display:none}
+.msg.ok{display:block;background:#e6f4ed;color:var(--ok)}
+.msg.err{display:block;background:#fde8e8;color:var(--danger)}
+.msg.info{display:block;background:#e8f0fe;color:#1a56db}
+.status-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:8px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.on{background:var(--ok)}.dot.off{background:var(--danger)}.dot.wait{background:#d4a017}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(28,124,100,.3);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.advanced-toggle{font-size:13px;color:var(--accent);cursor:pointer;margin-top:10px;display:inline-block}
+.advanced{display:none;margin-top:10px}
+.advanced.show{display:block}
+.row{display:flex;gap:8px;margin-top:12px}
+.bottom-bar{text-align:center;margin-top:20px}
+.bottom-bar span{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1 id="title">SeeedMote Gateway 配置</h1>
+<div class="sub" id="subtitle">正在加载…</div>
+
+<!-- Step 1: WiFi -->
+<div class="card" id="step1">
+  <div class="step-title"><span class="step-num">1</span>连接 WiFi</div>
+  <button class="btn-s" onclick="doScan()">扫描网络</button>
+  <ul class="nets" id="nets" style="display:none"></ul>
+  <label for="ssid">WiFi 名称</label>
+  <input id="ssid" autocomplete="off" placeholder="点击上方扫描选择">
+  <label for="wpass">WiFi 密码</label>
+  <input id="wpass" type="password" placeholder="无密码则留空">
+  <div class="msg" id="wifi-msg"></div>
+  <div class="status-row" id="wifi-status" style="display:none">
+    <span class="dot" id="wifi-dot"></span>
+    <span id="wifi-text"></span>
+  </div>
+</div>
+
+<!-- Step 2: Server -->
+<div class="card" id="step2">
+  <div class="step-title"><span class="step-num">2</span>连接服务器</div>
+  <label for="broker">服务器地址</label>
+  <input id="broker" placeholder="例如 192.168.1.100">
+  <span class="advanced-toggle" onclick="toggleAdv()">▸ 高级设置</span>
+  <div class="advanced" id="adv">
+    <label for="mport">端口</label>
+    <input id="mport" type="number" value="1883" min="1" max="65535">
+    <label for="mpass">密码（无则留空）</label>
+    <input id="mpass" type="password">
+  </div>
+  <div class="msg" id="mqtt-msg"></div>
+  <div class="status-row" id="mqtt-status" style="display:none">
+    <span class="dot" id="mqtt-dot"></span>
+    <span id="mqtt-text"></span>
+  </div>
+</div>
+
+<!-- Save all -->
+<button class="btn-p" onclick="saveAll()" id="save-btn" style="margin-bottom:14px">保存并连接</button>
+
+<!-- System -->
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <span class="sub" id="sys-info" style="margin:0">固件版本: …</span>
+    <div style="display:flex;gap:8px">
+      <button class="btn-s" style="width:auto;padding:8px 14px;font-size:13px" onclick="doLocate()">📍 找到我</button>
+      <button class="btn-d" style="width:auto;padding:8px 14px;font-size:13px" onclick="doRestart()">重启</button>
+    </div>
+  </div>
+</div>
+
+<div class="bottom-bar">
+  <span id="gw-id"></span>
+</div>
+</main>
+
+<script>
+const $=s=>document.getElementById(s);
+
+function setDot(id,state){
+  const d=$(id);
+  d.className='dot '+(state==='on'?'on':state==='wait'?'wait':'off');
+}
+
+function showMsg(id,type,txt){
+  const m=$(id);m.className='msg '+type;m.textContent=txt;
+}
+function hideMsg(id){const m=$(id);m.className='msg';m.style.display='none'}
+
+function toggleAdv(){
+  const a=$('adv');
+  a.classList.toggle('show');
+  document.querySelector('.advanced-toggle').textContent=
+    a.classList.contains('show')?'▾ 高级设置':'▸ 高级设置';
+}
+
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/status');
+    const s=await r.json();
+    $('title').textContent='配置网关';
+    $('gw-id').textContent='设备: '+(s.gw_id||'');
+    $('sys-info').textContent='固件: '+s.version;
+
+    // WiFi status
+    const ws=$('wifi-status');ws.style.display='flex';
+    if(s.wifi_connected){
+      setDot('wifi-dot','on');
+      $('wifi-text').textContent='已连接 '+s.wifi_ssid+' ('+s.ip+')';
+      $('step1').classList.add('done');
+      $('subtitle').textContent='IP: '+s.ip;
+    }else if(s.wifi_ssid){
+      setDot('wifi-dot','wait');
+      $('wifi-text').textContent='正在连接 '+s.wifi_ssid+'…';
+      $('subtitle').textContent='正在连接 WiFi…';
+    }else{
+      setDot('wifi-dot','off');
+      $('wifi-text').textContent='未配置';
+      $('subtitle').textContent='请先连接 WiFi';
+    }
+    if(s.wifi_ssid)$('ssid').value=s.wifi_ssid;
+    if(s.wifi_pass)$('wpass').value=s.wifi_pass;
+
+    // MQTT status
+    const ms=$('mqtt-status');ms.style.display='flex';
+    if(s.mqtt_connected){
+      setDot('mqtt-dot','on');
+      $('mqtt-text').textContent='已连接服务器';
+      $('step2').classList.add('done');
+    }else if(s.mqtt_broker){
+      setDot('mqtt-dot','wait');
+      $('mqtt-text').textContent='正在连接 '+s.mqtt_broker+'…';
+    }else{
+      setDot('mqtt-dot','off');
+      $('mqtt-text').textContent='未配置';
+    }
+    if(s.mqtt_broker){$('broker').value=s.mqtt_broker}
+    if(s.mqtt_port){$('mport').value=s.mqtt_port}
+    if(s.mqtt_pass)$('mpass').value=s.mqtt_pass;
+
+  }catch(e){$('subtitle').textContent='无法连接网关'}
+}
+
+async function doScan(){
+  const list=$('nets');
+  list.style.display='block';
+  list.innerHTML='<li style="justify-content:center;cursor:default"><span class="spinner"></span>&nbsp;扫描中…</li>';
+  try{
+    const r=await fetch('/api/scan');
+    const nets=await r.json();
+    if(!nets.length){list.innerHTML='<li style="cursor:default;color:var(--muted)">未找到网络</li>';return}
+    list.innerHTML='';
+    nets.forEach(n=>{
+      const li=document.createElement('li');
+      const name=document.createElement('span');
+      name.textContent=n.ssid;
+      if(n.auth!=='open')name.classList.add('lock');
+      const rssi=document.createElement('span');
+      rssi.className='rssi';
+      const bars=n.rssi>-50?'▂▄▆█':n.rssi>-65?'▂▄▆':n.rssi>-75?'▂▄':'▂';
+      rssi.textContent=bars;
+      li.append(name,rssi);
+      li.onclick=()=>{$('ssid').value=n.ssid;$('wpass').focus();list.style.display='none'};
+      list.appendChild(li);
+    });
+  }catch(e){list.innerHTML='<li style="cursor:default;color:var(--danger)">扫描失败</li>'}
+}
+
+async function saveAll(){
+  const ssid=$('ssid').value.trim();
+  const broker=$('broker').value.trim();
+
+  if(!ssid){showMsg('wifi-msg','err','请输入 WiFi 名称');return}
+  if(!broker){showMsg('mqtt-msg','err','请输入服务器地址');return}
+
+  hideMsg('wifi-msg');hideMsg('mqtt-msg');
+  $('save-btn').disabled=true;
+  $('save-btn').textContent='保存中…';
+
+  try{
+    // Save WiFi
+    let r=await fetch('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ssid,password:$('wpass').value})});
+    if(!r.ok)throw new Error('WiFi: '+await r.text());
+
+    // Save MQTT
+    r=await fetch('/api/mqtt',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({broker,port:parseInt($('mport').value)||1883,password:$('mpass').value})});
+    if(!r.ok)throw new Error('MQTT: '+await r.text());
+
+    showMsg('wifi-msg','ok','已保存，正在连接…');
+    pollStatus(10);
+  }catch(e){
+    showMsg('wifi-msg','err','保存失败: '+e.message);
+  }finally{
+    $('save-btn').disabled=false;
+    $('save-btn').textContent='保存并连接';
+  }
+}
+
+function pollStatus(n){
+  if(n<=0)return;
+  setTimeout(()=>{loadStatus();pollStatus(n-1)},2000);
+}
+
+function doLocate(){
+  fetch('/api/locate',{method:'POST'}).catch(()=>{});
+}
+
+function doRestart(){
+  if(!confirm('确定要重启网关？'))return;
+  fetch('/api/restart',{method:'POST'}).catch(()=>{});
+  $('subtitle').textContent='正在重启…';
+}
+
+loadStatus();
+</script>
+</body>
+</html>
