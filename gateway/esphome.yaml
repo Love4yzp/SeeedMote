@@ -1,9 +1,15 @@
 substitutions:
-  device_name: seeedmote-gateway
+  device_name: seeedmote-gw
 
 esphome:
   name: ${device_name}
   friendly_name: SeeedMote Gateway
+  name_add_mac_suffix: true
+  on_boot:
+    priority: 800
+    then:
+      - lambda: |-
+          id(mqtt_client).set_username(App.get_name().c_str());
 
 esp32:
   board: seeed_xiao_esp32s3
@@ -17,20 +23,17 @@ web_server:
 
 ota:
   - platform: esphome
-    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
-    ssid: "${device_name} Fallback"
-    password: !secret ap_password
+    ssid: "SeeedMote Gateway"
 
 mqtt:
   id: mqtt_client
   broker: !secret mqtt_broker
   port: !secret mqtt_port
-  username: !secret mqtt_username
   password: !secret mqtt_password
 
 # Phase 0 (v4): raw BTHome v2 parse.

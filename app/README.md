@@ -14,12 +14,15 @@ FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型
 
 | Topic | 触发 | Payload |
 |---|---|---|
-| `seeedmote/<mac>/event`  | mote 动作 | `{"packet_id": N, "rssi": -55, "gw": "<gw_name>"}` |
-| `seeedmote/<mac>/online` | mote boot 心跳 | `{"rssi": -55, "gw": "<gw_name>"}` |
+| `seeedmote/<mac>/event`  | mote 动作 | `{"packet_id": N, "rssi": -55, "gw": "<gw_id>"}` |
+| `seeedmote/<mac>/online` | mote boot 心跳 | `{"rssi": -55, "gw": "<gw_id>"}` |
 
 - `<mac>` 是 lowercase 无冒号 MAC。
 - Backend 通过 topic 段抽 `mote_mac`,通过 payload `gw` 字段推 gateway 在线
   (boot/event 任意一帧到达 → gateway "online";沉默 `GATEWAY_ONLINE_TTL_S` 后翻 offline)。
+- Gateway 固件使用 ESPHome `name_add_mac_suffix: true`,`gw` 是类似
+  `seeedmote-gw-a1b2c3` 的稳定设备 ID。用户可读位置名通过 `gateways.yaml`
+  映射,不需要重烧 gateway 固件。
 - 消费侧按 `(mote_mac, packet_id)` 去重(packet_id 是 uint8 wrap counter)。
 - React 默认不展示 raw `packet_id` / `rssi` / `gw`。Backend 会把 raw event 转为
   `InteractionEvent`(`商品被拿起`、商品信息、登记状态),技术字段只放在诊断信息里。
@@ -46,6 +49,11 @@ Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 
 编辑根级 `shoes.yaml`。Key = `mote_mac`(lowercase 无冒号)。
 未注册的 mote 会以 `(xxxx)` 占位卡片出现,不需要改固件。
 
+## Register a gateway alias
+
+编辑根级 `gateways.yaml`。Key = MQTT payload 里的 `gw` 稳定 ID,`alias` 是业务/现场
+显示名,例如 `booth-01-left`。未登记的 gateway 仍按原始 `gw` ID 显示。
+
 ## Files
 
 | Path | Purpose |
@@ -58,4 +66,5 @@ Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 
 | `app/src/`               | React + Vite 前端 |
 | `app/src/store.ts`       | Zustand store(events, gateways, ws 状态) |
 | `shoes.yaml`             | mote_mac → SKU metadata |
+| `gateways.yaml`          | gw_id → human-readable alias |
 | `assets/`                | 占位 SVG 鞋图 |

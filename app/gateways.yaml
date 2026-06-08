@@ -1,0 +1,9 @@
+# Gateway identity metadata.
+#
+# Keys match the gateway id reported in MQTT payload field `gw`.
+# ESPHome uses one shared firmware with `name_add_mac_suffix: true`, so real ids
+# look like `seeedmote-gw-a1b2c3`. Add aliases here for human-readable locations.
+
+gateways:
+  "seeedmote-gw-a1b2c3":
+    alias: "booth-01-left"

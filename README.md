@@ -29,8 +29,8 @@
 ./dev mote log                                # 串口日志
 
 # Gateway(需先安装 ESPHome CLI: pip install esphome)
-cp gateway/secrets.yaml.example gateway/secrets.yaml   # 填入 WiFi/MQTT/MAC
-./dev gateway run
+${EDITOR:-vi} gateway/secrets.yaml                     # 可选:修改测试 WiFi/MQTT 默认值
+./dev gateway run                                      # 统一固件;ESPHome 自动追加 MAC 后缀区分 gateway
 ```
 
 ## Repo layout
@@ -46,7 +46,8 @@ seeedmote-v2/
 │   ├── west.yml + CMakeLists.txt + prj.conf + app.overlay + src/
 ├── gateway/
 │   ├── esphome.yaml                ← XIAO ESP32-S3 ESPHome 配置
-│   └── secrets.yaml.example        ← WiFi/MQTT/MAC 配置模板
+│   ├── secrets.yaml                ← 测试阶段默认 WiFi/MQTT
+│   └── secrets.yaml.example        ← 默认配置模板
 ├── app/                            ← 零售演示 web UI + backend
 ├── tools/
 │   └── web-bt/                     ← Chrome Web BT 现场配置工具(单页静态)
@@ -58,7 +59,7 @@ seeedmote-v2/
 ## 架构简则
 
 1. **Mote 固件**: 只改 `mote/`，走 `./dev mote build / flash`
-2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `./dev gateway run`
+2. **Gateway 配置**: 只改 `gateway/esphome.yaml`，走 `./dev gateway run`;可读别名在 `app/gateways.yaml` 映射
 3. **BTHome 是契约**: 对象映射见 `AGENTS.md §5`，mote 和 gateway 必须同步
 4. **事件型**: 无周期 telemetry，无 raw 数据流，boot heartbeat 仅用于上线/配置窗口发现
 

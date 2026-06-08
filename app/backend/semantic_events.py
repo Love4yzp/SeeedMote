@@ -2,16 +2,22 @@ from collections.abc import Mapping
 from typing import Any
 
 
-def to_interaction_event(raw: Mapping[str, Any], shoes: Mapping[str, Mapping[str, Any]]) -> dict:
+def to_interaction_event(
+    raw: Mapping[str, Any],
+    shoes: Mapping[str, Mapping[str, Any]],
+    gateway_aliases: Mapping[str, str] | None = None,
+) -> dict:
     """Project the raw gateway event into the retail demo business language."""
     mote_mac = str(raw.get("mote_mac") or "").lower()
     item = shoes.get(mote_mac)
+    gw_id = str(raw.get("gw_id") or "unknown")
 
     source = {
         "mote_mac": mote_mac,
         "packet_id": int(raw.get("packet_id", 0)),
         "rssi": int(raw.get("rssi", 0)),
-        "gw_id": str(raw.get("gw_id") or "unknown"),
+        "gw_id": gw_id,
+        "gw_alias": (gateway_aliases or {}).get(gw_id),
     }
 
     if item is None:
@@ -36,5 +42,9 @@ def to_interaction_event(raw: Mapping[str, Any], shoes: Mapping[str, Mapping[str
     }
 
 
-def to_interaction_events(raw_events: list[dict], shoes: Mapping[str, Mapping[str, Any]]) -> list[dict]:
-    return [to_interaction_event(ev, shoes) for ev in raw_events]
+def to_interaction_events(
+    raw_events: list[dict],
+    shoes: Mapping[str, Mapping[str, Any]],
+    gateway_aliases: Mapping[str, str] | None = None,
+) -> list[dict]:
+    return [to_interaction_event(ev, shoes, gateway_aliases) for ev in raw_events]
