@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MOTE_DIR = ROOT / "mote"
-GATEWAY_YAML = ROOT / "gateway" / "esphome.yaml"
+GATEWAY_DIR = ROOT / "gateway"
 DEFAULT_NCS = "v2.9.2"
 DEFAULT_BOARD = "xiao_ble/nrf52840/sense"
 DEFAULT_BUILD_DIR = "build_uf2"
@@ -177,7 +177,7 @@ def ensure_tool(tool: str) -> None:
     hints = {
         "nrfutil": "Install nrfutil and NCS toolchain-manager; see docs/build.md.",
         "tio": "Install tio, or pass a tool-specific log command outside ./dev.",
-        "esphome": "Install ESPHome CLI with pip install esphome.",
+        "pio": "Install PlatformIO CLI: pip install platformio",
         "make": "Install Xcode command line tools so make is available.",
     }
     hint = hints.get(tool, f"Install {tool} or add it to PATH.")
@@ -374,19 +374,34 @@ def mote_run(args: argparse.Namespace) -> None:
     mote_log(args)
 
 
-def gateway_command(args: argparse.Namespace, action: str) -> None:
-    command = ["esphome", action, rel(GATEWAY_YAML)]
-    if args.dry_run:
-        run_command(command, dry_run=True)
-        return
+def gateway_build(args: argparse.Namespace) -> None:
+    run_command(["pio", "run"], cwd=GATEWAY_DIR, dry_run=args.dry_run)
 
-    try:
-        run_command_for_gateway(command, cwd=ROOT)
-    except subprocess.CalledProcessError as exc:
-        if repair_esptoolpy_if_needed(exc):
-            run_command_for_gateway(command, cwd=ROOT)
-            return
-        raise
+
+def gateway_flash(args: argparse.Namespace) -> None:
+    command = ["pio", "run", "-t", "upload"]
+    if getattr(args, "port", None):
+        command.extend(["--upload-port", args.port])
+    run_command(command, cwd=GATEWAY_DIR, dry_run=args.dry_run)
+
+
+def gateway_log(args: argparse.Namespace) -> None:
+    command = ["pio", "device", "monitor"]
+    if getattr(args, "port", None):
+        command.extend(["--port", args.port])
+    if args.dry_run:
+        run_command(command, cwd=GATEWAY_DIR, dry_run=True)
+        return
+    run_command_for_gateway(command, cwd=GATEWAY_DIR)
+
+
+def gateway_run(args: argparse.Namespace) -> None:
+    gateway_flash(args)
+    gateway_log(args)
+
+
+def gateway_clean(args: argparse.Namespace) -> None:
+    run_command(["pio", "run", "-t", "clean"], cwd=GATEWAY_DIR, dry_run=args.dry_run)
 
 
 def app_command(args: argparse.Namespace, target: str) -> None:
@@ -409,8 +424,7 @@ def doctor(args: argparse.Namespace) -> None:
     checks = [
         ("nrfutil", shutil.which("nrfutil") is not None),
         ("tio", shutil.which("tio") is not None),
-        ("esphome", shutil.which("esphome") is not None),
-        ("gateway/secrets.yaml", (ROOT / "gateway" / "secrets.yaml").exists()),
+        ("pio", shutil.which("pio") is not None),
         (f"~/ncs/{args.ncs}/zephyr", (Path.home() / "ncs" / args.ncs / "zephyr").exists()),
         (DEFAULT_VOLUME, Path(DEFAULT_VOLUME).is_dir()),
     ]
@@ -549,25 +563,42 @@ def build_parser() -> tuple[argparse.ArgumentParser, ParserRegistry]:
         ("gateway",),
         subparsers.add_parser(
             "gateway",
-            help="ESPHome gateway",
+            help="ESP32-S3 gateway firmware (PlatformIO + ESP-IDF)",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""examples:
-  ./dev gateway compile
+  ./dev gateway build
+  ./dev gateway flash
   ./dev gateway run
   ./dev gateway log
+  ./dev gateway clean
 """,
         ),
     )
     add_dry_run_option(gateway)
     gateway_sub = gateway.add_subparsers(dest="action", required=True)
-    for name, action, help_text in (
-        ("compile", "compile", "Compile gateway ESPHome config"),
-        ("run", "run", "Compile, flash, and stream gateway log output"),
-        ("log", "logs", "Stream gateway log output"),
-    ):
-        gateway_parser = registry.add(("gateway", name), gateway_sub.add_parser(name, help=help_text))
-        add_dry_run_option(gateway_parser)
-        gateway_parser.set_defaults(func=lambda args, esphome_action=action: gateway_command(args, esphome_action))
+
+    gw_build_parser = registry.add(("gateway", "build"), gateway_sub.add_parser("build", help="Build gateway firmware"))
+    add_dry_run_option(gw_build_parser)
+    gw_build_parser.set_defaults(func=gateway_build)
+
+    gw_flash_parser = registry.add(("gateway", "flash"), gateway_sub.add_parser("flash", help="Build and flash gateway firmware"))
+    add_dry_run_option(gw_flash_parser)
+    gw_flash_parser.add_argument("--port", help="Upload serial port")
+    gw_flash_parser.set_defaults(func=gateway_flash)
+
+    gw_log_parser = registry.add(("gateway", "log"), gateway_sub.add_parser("log", help="Stream gateway serial log"))
+    add_dry_run_option(gw_log_parser)
+    gw_log_parser.add_argument("--port", help="Serial port")
+    gw_log_parser.set_defaults(func=gateway_log)
+
+    gw_run_parser = registry.add(("gateway", "run"), gateway_sub.add_parser("run", help="Flash and stream gateway log"))
+    add_dry_run_option(gw_run_parser)
+    gw_run_parser.add_argument("--port", help="Serial port")
+    gw_run_parser.set_defaults(func=gateway_run)
+
+    gw_clean_parser = registry.add(("gateway", "clean"), gateway_sub.add_parser("clean", help="Clean gateway build"))
+    add_dry_run_option(gw_clean_parser)
+    gw_clean_parser.set_defaults(func=gateway_clean)
 
     app = registry.add(
         ("app",),
