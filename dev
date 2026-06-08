@@ -7,6 +7,7 @@ import argparse
 from collections import deque
 import glob
 import os
+import signal
 import shlex
 import shutil
 import subprocess
@@ -116,6 +117,58 @@ def run_command_for_gateway(command: list[str], *, cwd: Path = ROOT, env: dict[s
     if returncode != 0:
         output = "".join(tail)
         raise subprocess.CalledProcessError(returncode, command, output, "")
+
+
+def terminate_process_group(proc: subprocess.Popen[object], timeout: float = 5.0) -> None:
+    if proc.poll() is not None:
+        return
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except OSError:
+        return
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            return
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            return
+
+
+def run_command_for_app(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
+    ensure_tool(command[0])
+
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    proc = subprocess.Popen(command, cwd=cwd, env=merged_env, start_new_session=True)
+    signals = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    previous_handlers = {sig: signal.getsignal(sig) for sig in signals}
+
+    def handle_stop(signum: int, _frame: object) -> None:
+        terminate_process_group(proc)
+        raise SystemExit(128 + signum)
+
+    for sig in signals:
+        signal.signal(sig, handle_stop)
+
+    try:
+        returncode = proc.wait()
+    finally:
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, command)
 
 
 def ensure_tool(tool: str) -> None:
@@ -342,7 +395,10 @@ def app_command(args: argparse.Namespace, target: str) -> None:
         command.append(f"MOCK={'true' if args.mock else 'false'}")
         command.append(f"BACKEND_PORT={args.backend_port}")
         command.append(f"FRONTEND_PORT={args.frontend_port}")
-    run_command(command, dry_run=args.dry_run)
+    if args.dry_run:
+        run_command(command, dry_run=True)
+        return
+    run_command_for_app(command)
 
 
 def doctor(args: argparse.Namespace) -> None:
