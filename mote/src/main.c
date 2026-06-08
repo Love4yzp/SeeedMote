@@ -31,6 +31,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/uuid.h>
 #if defined(CONFIG_SETTINGS)
 #include <zephyr/settings/settings.h>
 #endif
@@ -178,6 +179,14 @@ static struct bt_data bthome_adv_data[] = {
 static struct bt_data config_adv_data[] = {
     BT_DATA(BT_DATA_FLAGS, adv_flags, sizeof(adv_flags)),
     BT_DATA(BT_DATA_NAME_COMPLETE, bt_name, 0),
+};
+
+static const uint8_t cfg_svc_uuid[] = {
+    BT_UUID_128_ENCODE(0xa8b00001, 0x3e8e, 0x4b8f, 0x9a1c, 0x9b1f5e88aa00),
+};
+
+static const struct bt_data config_scan_rsp_data[] = {
+    BT_DATA(BT_DATA_UUID128_ALL, cfg_svc_uuid, sizeof(cfg_svc_uuid)),
 };
 
 static const struct bt_le_adv_param event_adv_param =
@@ -400,7 +409,7 @@ static int enter_config_window(void)
 
     int rc = bt_le_adv_start(&config_adv_param,
                              config_adv_data, ARRAY_SIZE(config_adv_data),
-                             NULL, 0);
+                             config_scan_rsp_data, ARRAY_SIZE(config_scan_rsp_data));
     if (rc) {
         LOG_ERR("bt_le_adv_start config window failed: %d", rc);
         adv_state = ADV_IDLE;
