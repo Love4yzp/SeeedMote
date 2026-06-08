@@ -54,7 +54,7 @@ async def _emit_transport(connected: bool) -> None:
 
 
 # ── Gateway reaper ──────────────────────────────────────────────────────────
-# Gateway "online" is derived: any /event or /online tagged with gw="X" marks
+# Gateway "online" is derived: any /event or /seen tagged with gw="X" marks
 # it online; this task flips it offline after GATEWAY_ONLINE_TTL_S of silence.
 
 async def _gateway_reaper() -> None:
@@ -229,6 +229,10 @@ class MqttConfigIn(BaseModel):
     password: str | None = None
 
 
+class GatewayCommandIn(BaseModel):
+    command: str
+
+
 @app.get("/api/config")
 async def get_config() -> dict:
     return {
@@ -278,6 +282,19 @@ async def get_shoes() -> dict:
 @app.get("/api/gateways")
 async def get_gateways() -> dict:
     return gateway_aliases
+
+
+@app.post("/api/gateways/{gw_id}/command")
+async def send_gateway_command(gw_id: str, cmd: GatewayCommandIn) -> dict:
+    if cmd.command != "locate":
+        raise HTTPException(400, "Unsupported gateway command")
+    if settings.mock:
+        return {"ok": True, "mock": True}
+    if source is None or not source.is_connected():
+        raise HTTPException(503, "MQTT broker is not connected")
+    if not source.publish_gateway_command(gw_id, cmd.command):
+        raise HTTPException(502, "Failed to publish gateway command")
+    return {"ok": True}
 
 
 _assets_dir = Path(__file__).parent.parent / "assets"

@@ -90,6 +90,44 @@ class SemanticEventTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(total, 1)
 
+    def test_store_preserves_gateway_version_from_status(self):
+        store = EventStore()
+
+        status = store.touch_gateway("seeedmote-gw-a1b2c3", version="2026.06.08")
+
+        self.assertTrue(status["online"])
+        self.assertEqual(status["version"], "2026.06.08")
+        _, gateways, _ = store.snapshot()
+        self.assertEqual(gateways["seeedmote-gw-a1b2c3"]["version"], "2026.06.08")
+
+    def test_gateway_command_payload_shape(self):
+        from mqtt_client import GATEWAY_COMMAND_TOPIC, MqttClient
+
+        class FakePublishInfo:
+            rc = 0
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            def publish(self, topic, payload, qos=0, retain=False):
+                self.calls.append((topic, payload, qos, retain))
+                return FakePublishInfo()
+
+        async def noop(*args, **kwargs):
+            pass
+
+        store = EventStore()
+        client = MqttClient(store, "localhost", 1883, None, None, None, noop, noop)
+        fake = FakeClient()
+        client._client = fake
+        client._connected = True
+
+        self.assertTrue(client.publish_gateway_command("seeedmote-gw-a1b2c3", "locate"))
+        self.assertEqual(fake.calls, [
+            (GATEWAY_COMMAND_TOPIC, '{"gw":"seeedmote-gw-a1b2c3","cmd":"locate"}', 1, False)
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,8 +3,8 @@ import time
 from collections import deque
 
 
-# Gateway is "online" if any /event or /online from it arrived within this many
-# seconds. Mote firmware emits a /online heartbeat at boot, and /event on every
+# Gateway is "online" if any /event or /seen from it arrived within this many
+# seconds. Mote firmware emits a /seen heartbeat at boot, and /event on every
 # motion, so any active mote keeps its gateway marked online.
 GATEWAY_ONLINE_TTL_S = 120.0
 
@@ -20,7 +20,7 @@ class EventStore:
 
     Schema (mirrors AGENTS.md §5.2):
       MotionEvent = {mote_mac, gw_id, rssi, packet_id, _received_at}
-      GatewayStatus = {gw_id, online, last_seen}
+      GatewayStatus = {gw_id, online, last_seen, version?}
     """
 
     def __init__(self, max_events: int = 500) -> None:
@@ -56,17 +56,31 @@ class EventStore:
             self._touch_gateway_locked(gw_id, rssi)
             return stored
 
-    def touch_gateway(self, gw_id: str, rssi: int | None = None) -> dict:
+    def touch_gateway(
+        self,
+        gw_id: str,
+        rssi: int | None = None,
+        *,
+        version: str | None = None,
+    ) -> dict:
         with self._lock:
-            return self._touch_gateway_locked(gw_id, rssi)
+            return self._touch_gateway_locked(gw_id, rssi, version=version)
 
-    def _touch_gateway_locked(self, gw_id: str, rssi: int | None) -> dict:
+    def _touch_gateway_locked(
+        self,
+        gw_id: str,
+        rssi: int | None,
+        *,
+        version: str | None = None,
+    ) -> dict:
         now = time.time()
         entry = self._gw.get(gw_id, {"gw_id": gw_id, "last_rssi": None})
         entry["last_seen"] = now
         entry["online"] = True
         if rssi is not None:
             entry["last_rssi"] = rssi
+        if version is not None:
+            entry["version"] = version
         self._gw[gw_id] = entry
         return entry
 

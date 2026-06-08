@@ -1,5 +1,7 @@
 substitutions:
   device_name: seeedmote-gw
+  gateway_firmware_version: "2026.06.08"
+  gateway_command_topic: seeedmote/gateway/cmd
 
 esphome:
   name: ${device_name}
@@ -24,6 +26,43 @@ web_server:
 ota:
   - platform: esphome
 
+output:
+  - platform: gpio
+    id: user_led
+    pin:
+      number: GPIO21
+      inverted: true
+
+script:
+  - id: locate_blink
+    mode: restart
+    then:
+      - repeat:
+          count: 12
+          then:
+            - output.turn_on: user_led
+            - delay: 150ms
+            - output.turn_off: user_led
+            - delay: 150ms
+  # Retained gateway status (firmware config version). Published on every MQTT
+  # (re)connect AND refreshed periodically by the interval below, so a publish
+  # that races the connection handshake can't leave the broker without a
+  # retained frame. publish() is a no-op while disconnected, so the interval is
+  # safe to fire before MQTT is up.
+  - id: publish_status
+    then:
+      - lambda: |-
+          const std::string gw = App.get_name();
+          const std::string topic = std::string("seeedmote/gateway/") + gw + "/status";
+          const std::string payload = std::string("{\"gw\":\"") + gw
+                                    + "\",\"version\":\"${gateway_firmware_version}\"}";
+          id(mqtt_client).publish(topic, payload, 0, true);
+
+interval:
+  - interval: 60s
+    then:
+      - script.execute: publish_status
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -35,6 +74,29 @@ mqtt:
   broker: !secret mqtt_broker
   port: !secret mqtt_port
   password: !secret mqtt_password
+  topic_prefix: null
+  discovery: false
+  discover_ip: false
+  birth_message: null
+  will_message: null
+  shutdown_message: null
+  log_topic: null
+  on_connect:
+    then:
+      - script.execute: publish_status
+  on_json_message:
+    - topic: ${gateway_command_topic}
+      qos: 1
+      then:
+        - lambda: |-
+            if (!x["gw"].is<const char *>() || !x["cmd"].is<const char *>()) return;
+            const char *gw = x["gw"];
+            const char *cmd = x["cmd"];
+            if (gw == nullptr || cmd == nullptr) return;
+            if (std::string(gw) != App.get_name()) return;
+            if (std::string(cmd) == "locate") {
+              id(locate_blink).execute();
+            }
 
 # Phase 0 (v4): raw BTHome v2 parse.
 #
@@ -119,10 +181,10 @@ esp32_ble_tracker:
             last_pid[mac_key] = packet_id;
 
             // Topic split: moving=1 is a motion event; moving=0 is the
-            // boot heartbeat ("/online" lets the consumer mark first/return
-            // appearance without inflating the event stream).
-            const char *suffix = (moving == 1) ? "/event" : "/online";
-            std::string topic = std::string("seeedmote/") + mac_key + suffix;
+            // boot heartbeat. Use "seen" rather than "online" because the
+            // mote is event-driven and does not maintain a live session.
+            const char *suffix = (moving == 1) ? "/event" : "/seen";
+            std::string topic = std::string("seeedmote/mote/") + mac_key + suffix;
 
             std::string payload;
             if (moving == 1) {
@@ -131,7 +193,8 @@ esp32_ble_tracker:
                       + ",\"gw\":\"" + App.get_name() + "\"}";
             } else {
               payload = std::string("{\"rssi\":") + std::to_string(x.get_rssi())
-                      + ",\"gw\":\"" + App.get_name() + "\"}";
+                      + ",\"gw\":\"" + App.get_name()
+                      + "\",\"reason\":\"boot\"}";
             }
 
             id(mqtt_client).publish(topic, payload);

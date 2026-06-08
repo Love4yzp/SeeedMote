@@ -107,7 +107,9 @@ esphome run gateway/esphome.yaml
 esphome logs gateway/esphome.yaml
 ```
 
-Gateway 使用统一固件。`gateway/esphome.yaml` 通过 `name_add_mac_suffix: true` 自动把 MAC 后缀追加到 ESPHome node name,所以 MQTT payload 里的 `gw` 会是类似 `seeedmote-gw-a1b2c3` 的稳定 ID。用户可读位置名在消费侧 `app/gateways.yaml` 配 alias,不需要重新烧录。
+Gateway 使用统一固件。`gateway/esphome.yaml` 通过 `name_add_mac_suffix: true` 自动把 MAC 后缀追加到 ESPHome node name,所以 MQTT payload 里的 `gw` 会是类似 `seeedmote-gw-a1b2c3` 的稳定 ID。用户可读位置名在消费侧 `app/gateways.yaml` 配 alias,不需要重新烧录。`gateway_firmware_version` 是这份 SeeedMote gateway YAML/固件配置版本,会发布到 `seeedmote/gateway/<gw_id>/status`;不要和 ESPHome 自身版本混用,也不要消费 ESPHome discovery/inventory topic。
+
+从旧 ESPHome 默认 MQTT 配置迁移过来时,broker 可能保留 retained 的 `seeedmote-gw/status offline`。这是旧 birth/will availability 残留,不是 SeeedMote 业务 topic;用 `mosquitto_pub -h <broker> -t seeedmote-gw/status -r -n` 清掉。
 
 测试阶段 `gateway/secrets.yaml` 已带默认 WiFi/MQTT 值。OTA 不设密码,初始化 fallback AP 也是开放 AP。MQTT username 在启动时自动设为带 MAC 后缀的 gateway ID(例如 `seeedmote-gw-a1b2c3`),不在 secrets 中手填。
 
@@ -165,16 +167,25 @@ Gateway 使用统一固件。`gateway/esphome.yaml` 通过 `name_add_mac_suffix:
 烧录两块板后,MQTT broker 应看到 gateway 发布的 SeeedMote 事件:
 
 ```
-seeedmote/f0e3912cec19/online {"rssi":-74,"gw":"seeedmote-gw-a1b2c3"}
-seeedmote/f0e3912cec19/event  {"packet_id":42,"rssi":-68,"gw":"seeedmote-gw-a1b2c3"}
+seeedmote/mote/f0e3912cec19/seen  {"rssi":-74,"gw":"seeedmote-gw-a1b2c3","reason":"boot"}
+seeedmote/mote/f0e3912cec19/event {"packet_id":42,"rssi":-68,"gw":"seeedmote-gw-a1b2c3"}
+seeedmote/gateway/seeedmote-gw-a1b2c3/status {"gw":"seeedmote-gw-a1b2c3","version":"2026.06.08"}
 ```
+
+定位某个 Gateway 时,app 会向共享命令 topic 发布:
+
+```
+seeedmote/gateway/cmd {"gw":"seeedmote-gw-a1b2c3","cmd":"locate"}
+```
+
+目标 gateway 会校验 payload 里的 `gw` 等于本机 ID,然后闪烁 XIAO ESP32-S3 板载 USER_LED(GPIO21,active-low)。
 
 判断好坏:
 
 | 现象 | 结论 |
 |---|---|
 | 看到 BLE adv 但没 MQTT | BTHome Service Data 不含 `packet_id` + `moving`,查 `AGENTS.md §5` |
-| `/online` 在 boot 后出现 | boot heartbeat 正常 |
+| `/seen` 在 boot 后出现 | boot heartbeat 正常 |
 | `/event` 随动作出现 | IMU WAKE_UP + BTHome payload 正常 |
 | 同一 `packet_id` 被多个 gateway 上报 | 正常:consumer 用 `(mote_mac, packet_id)` 去重 |
 | 完全没有 BLE adv | mote 静默可能正常;boot 或摇动后再看 RTT(`JLinkRTTViewer`) |

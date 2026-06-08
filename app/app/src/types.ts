@@ -6,6 +6,7 @@ export interface GatewayStatus {
   online: boolean;
   last_seen: number;
   last_rssi: number | null;
+  version?: string;
 }
 
 export interface ShoeInfo {

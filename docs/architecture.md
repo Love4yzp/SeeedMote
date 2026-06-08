@@ -35,9 +35,9 @@ Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 网
 | Gateway 角色 | 数据采集汇聚 | 事件中继(stateless) |
 | Broker | 时序数据传输 | 事件总线(不持久化) |
 | 消费侧 | 时序图 / 阈值告警 | 事件流 / 状态机派生 / 业务响应 |
-| **不要的东西** | n/a | raw 采样缓存 / 周期 telemetry / MQTT 下行 |
+| **不要的东西** | n/a | raw 采样缓存 / 周期 telemetry / Mote 配置 MQTT 下行 |
 
-**如果你发现自己在加周期发布、raw 缓存、gateway BLE client 或 MQTT 下行,你走错路了。**
+**如果你发现自己在加周期发布、raw 缓存、gateway BLE client 或 Mote 配置 MQTT 下行,你走错路了。** Gateway 自身的现场运维命令例外,当前只允许 `locate` 闪灯。
 
 ## 链路(4 段)
 
@@ -62,7 +62,7 @@ Seeed 方案商团队的**参考架构家族骨架**。BLE 低功耗节点 + 网
 
 - **Home Assistant**: ESPHome 原生集成,BTHome v2 设备自动发现
 - **任意 MQTT broker**: Mosquitto / EMQX / HiveMQ / CloudMQTT 均可
-- **自有后端**: 订阅 MQTT topic,按 `(mote_mac, packet_id)` 去重即可消费事件
+- **自有后端**: 订阅 MQTT topic,按 `(mote_mac, packet_id)` 去重即可消费事件;如需定位 Gateway,向 `seeedmote/gateway/cmd` 发布 `{"gw":"<gw_id>","cmd":"locate"}`
 
 ## 当前显式不做的事
 
