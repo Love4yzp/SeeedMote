@@ -13,14 +13,17 @@ VENV        := $(BACKEND_DIR)/.venv
 PYTHON      := $(VENV)/bin/python
 
 MOCK ?= false
+BACKEND_PORT ?= 3001
+FRONTEND_PORT ?= 5173
+BACKEND_URL := http://localhost:$(BACKEND_PORT)
 
 .PHONY: dev install backend frontend
 
 dev: install
-	@echo "Starting backend (:3001) + frontend (:5173) — Ctrl-C to stop both"
-	@trap 'kill 0' INT; \
-	  MOCK=$(MOCK) $(PYTHON) $(BACKEND_DIR)/main.py & \
-	  npm --prefix $(FRONTEND_DIR) run dev & \
+	@echo "Starting backend (:$(BACKEND_PORT)) + frontend (:$(FRONTEND_PORT)) — Ctrl-C to stop both"
+	@trap 'kill 0' INT TERM; \
+	  MOCK=$(MOCK) SEEEDMOTE_APP_PORT=$(BACKEND_PORT) $(PYTHON) $(BACKEND_DIR)/main.py & \
+	  SEEEDMOTE_FRONTEND_PORT=$(FRONTEND_PORT) SEEEDMOTE_BACKEND_URL=$(BACKEND_URL) npm --prefix $(FRONTEND_DIR) run dev & \
 	  wait
 
 install:

@@ -1,6 +1,8 @@
 export interface GatewayStatus {
   gw_id: string;
   alias: string | null;
+  gw_alias: string | null;
+  gw_label: string;
   online: boolean;
   last_seen: number;
   last_rssi: number | null;
@@ -26,6 +28,7 @@ export interface InteractionEvent {
     rssi: number;
     gw_id: string;
     gw_alias: string | null;
+    gw_label: string;
   };
   _received_at: number;
 }

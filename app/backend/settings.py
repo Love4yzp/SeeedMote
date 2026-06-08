@@ -27,7 +27,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SEEEDMOTE_BROKER_PASS", "MQTT_PASSWORD"),
     )
-    port: int = 3001
+    port: int = Field(
+        default=3001,
+        validation_alias=AliasChoices("SEEEDMOTE_APP_PORT", "PORT"),
+    )
     mock: bool = False
     shoes_yaml: Path = Path(__file__).parent.parent / "shoes.yaml"
     gateways_yaml: Path = Path(__file__).parent.parent / "gateways.yaml"

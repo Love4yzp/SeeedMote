@@ -56,6 +56,9 @@ seeedmote-v2/
     └── build.md                    ← 构建命令清单
 ```
 
+`tools/web-bt/` 是 Chrome / Android 直连 mote GATT service 的现场配置工具。
+它刻意独立于 `app/`,因为 v2 不做 gateway MQTT 下行。
+
 ## 架构简则
 
 1. **Mote 固件**: 只改 `mote/`，走 `./dev mote build / flash`

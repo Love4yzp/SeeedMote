@@ -142,7 +142,10 @@ def _load_gateway_aliases(path: Path) -> dict[str, str]:
 def _gateway_status_payload(status: dict) -> dict:
     payload = dict(status)
     gw_id = str(payload.get("gw_id") or "unknown")
-    payload["alias"] = gateway_aliases.get(gw_id)
+    alias = gateway_aliases.get(gw_id)
+    payload["alias"] = alias
+    payload["gw_alias"] = alias
+    payload["gw_label"] = alias or gw_id
     return payload
 
 
@@ -155,7 +158,7 @@ async def lifespan(app: FastAPI):
     global shoes, gateway_aliases, source
 
     with open(settings.shoes_yaml) as f:
-        data = yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
     shoes = data.get("shoes", {})
     logger.info("Loaded %d shoes from %s", len(shoes), settings.shoes_yaml)
 
@@ -202,11 +205,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     ws_clients.add(ws)
     try:
-        events, gateways, total = store.snapshot()
+        events, raw_gateways, total = store.snapshot()
         await ws.send_text(json.dumps({
             "type": "snapshot",
             "events": to_interaction_events(events, shoes, gateway_aliases),
-            "gateways": _gateway_snapshot_payload(gateways),
+            "gateways": _gateway_snapshot_payload(raw_gateways),
             "total": total,
             "connected": source.is_connected() if source else settings.mock,
             "mock": settings.mock,
@@ -270,6 +273,11 @@ async def update_config(cfg: MqttConfigIn) -> dict:
 @app.get("/api/shoes")
 async def get_shoes() -> dict:
     return shoes
+
+
+@app.get("/api/gateways")
+async def get_gateways() -> dict:
+    return gateway_aliases
 
 
 _assets_dir = Path(__file__).parent.parent / "assets"

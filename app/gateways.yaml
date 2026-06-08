@@ -5,5 +5,7 @@
 # look like `seeedmote-gw-a1b2c3`. Add aliases here for human-readable locations.
 
 gateways:
+  "seeedmote-gateway":
+    alias: "深圳办公室-入口网关"
   "seeedmote-gw-a1b2c3":
     alias: "booth-01-left"
