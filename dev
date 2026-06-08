@@ -10,6 +10,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -22,6 +23,26 @@ DEFAULT_BOARD = "xiao_ble/nrf52840/sense"
 DEFAULT_BUILD_DIR = "build_uf2"
 DEFAULT_VOLUME = "/Volumes/XIAO-SENSE"
 DEFAULT_PORT_GLOB = "/dev/cu.usbmodem*"
+ROOT_COMMANDS = ("mote", "gateway", "app", "doctor", "help")
+COMMAND_GROUPS = ("mote", "gateway", "app")
+
+
+class DevArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
+        super().__init__(*args, **kwargs)
+
+
+class ParserRegistry:
+    def __init__(self) -> None:
+        self.parsers: dict[tuple[str, ...], argparse.ArgumentParser] = {}
+
+    def add(self, topic: tuple[str, ...], parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        self.parsers[topic] = parser
+        return parser
+
+    def get(self, topic: list[str]) -> argparse.ArgumentParser | None:
+        return self.parsers.get(tuple(topic))
 
 
 def rel(path: Path | str) -> str:
@@ -51,6 +72,8 @@ def run_command(
         print(f"$ {shell_line(command, env)}")
         return
 
+    ensure_tool(command[0])
+
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
@@ -58,6 +81,8 @@ def run_command(
 
 
 def run_command_for_gateway(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
+    ensure_tool(command[0])
+
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
@@ -91,6 +116,19 @@ def run_command_for_gateway(command: list[str], *, cwd: Path = ROOT, env: dict[s
     if returncode != 0:
         output = "".join(tail)
         raise subprocess.CalledProcessError(returncode, command, output, "")
+
+
+def ensure_tool(tool: str) -> None:
+    if shutil.which(tool) is not None:
+        return
+    hints = {
+        "nrfutil": "Install nrfutil and NCS toolchain-manager; see docs/build.md.",
+        "tio": "Install tio, or pass a tool-specific log command outside ./dev.",
+        "esphome": "Install ESPHome CLI with pip install esphome.",
+        "make": "Install Xcode command line tools so make is available.",
+    }
+    hint = hints.get(tool, f"Install {tool} or add it to PATH.")
+    raise SystemExit(f"Missing required tool: {tool}\n{hint}")
 
 
 def is_esptoolpy_corruption_error(error_text: str | None) -> bool:
@@ -339,71 +377,246 @@ def add_mote_options(parser: argparse.ArgumentParser, *, include_debug: bool = F
         parser.add_argument("--debug", action="store_true", help="Build with mote/debug.conf USB CDC console")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="./dev", description="SeeedMote v2 development CLI")
+def add_dry_run_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dry-run", action="store_true", help="Print commands without running them")
+
+
+def build_parser() -> tuple[argparse.ArgumentParser, ParserRegistry]:
+    registry = ParserRegistry()
+    parser = registry.add(
+        (),
+        DevArgumentParser(
+            prog="./dev",
+            description="SeeedMote v2 development CLI",
+            epilog="""examples:
+  ./dev doctor
+  ./dev mote build
+  ./dev mote flash --debug
+  ./dev gateway run
+  ./dev app run --mock
+  ./dev help mote build
+""",
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print commands without running them")
 
     subparsers = parser.add_subparsers(dest="area", required=True)
 
-    mote = subparsers.add_parser("mote", help="nRF52840 mote firmware")
+    mote = registry.add(
+        ("mote",),
+        subparsers.add_parser(
+            "mote",
+            help="nRF52840 mote firmware",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev mote build
+  ./dev mote build --debug
+  ./dev mote flash --volume /Volumes/XIAO-SENSE
+  ./dev mote log --port /dev/cu.usbmodem101
+  ./dev mote run --debug
+""",
+        ),
+    )
+    add_dry_run_option(mote)
     mote_sub = mote.add_subparsers(dest="action", required=True)
 
-    mote_build_parser = mote_sub.add_parser("build", help="Build mote UF2 firmware")
+    mote_build_parser = registry.add(
+        ("mote", "build"),
+        mote_sub.add_parser(
+            "build",
+            help="Build mote UF2 firmware",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev mote build
+  ./dev mote build --debug
+  ./dev mote build --clean
+  ./dev mote build --dry-run
+""",
+        ),
+    )
+    add_dry_run_option(mote_build_parser)
     add_mote_options(mote_build_parser, include_debug=True)
     mote_build_parser.add_argument("--clean", action="store_true", help="Pristine before building")
     mote_build_parser.set_defaults(func=mote_build)
 
-    mote_flash_parser = mote_sub.add_parser("flash", help="Build and copy UF2 to the XIAO bootloader volume")
+    mote_flash_parser = registry.add(
+        ("mote", "flash"),
+        mote_sub.add_parser(
+            "flash",
+            help="Build and copy UF2 to the XIAO bootloader volume",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev mote flash
+  ./dev mote flash --debug
+  ./dev mote flash --volume /Volumes/XIAO-SENSE
+""",
+        ),
+    )
+    add_dry_run_option(mote_flash_parser)
     add_mote_options(mote_flash_parser, include_debug=True)
     mote_flash_parser.add_argument("--volume", default=DEFAULT_VOLUME, help=f"UF2 volume, default: {DEFAULT_VOLUME}")
     mote_flash_parser.add_argument("--port", help="Serial port used for 1200-baud bootloader touch")
     mote_flash_parser.set_defaults(func=mote_flash)
 
-    for name in ("log", "monitor"):
-        mote_log_parser = mote_sub.add_parser(name, help="Open mote serial logs")
-        mote_log_parser.add_argument("--port", help=f"Serial port, default: {DEFAULT_PORT_GLOB}")
-        mote_log_parser.set_defaults(func=mote_log)
+    mote_log_parser = registry.add(("mote", "log"), mote_sub.add_parser("log", help="Open mote serial logs"))
+    add_dry_run_option(mote_log_parser)
+    mote_log_parser.add_argument("--port", help=f"Serial port, default: {DEFAULT_PORT_GLOB}")
+    mote_log_parser.set_defaults(func=mote_log)
 
-    mote_run_parser = mote_sub.add_parser("run", help="Flash mote firmware, then open logs")
+    mote_run_parser = registry.add(
+        ("mote", "run"),
+        mote_sub.add_parser(
+            "run",
+            help="Flash mote firmware, then open logs",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev mote run
+  ./dev mote run --debug
+  ./dev mote run --port /dev/cu.usbmodem101
+""",
+        ),
+    )
+    add_dry_run_option(mote_run_parser)
     add_mote_options(mote_run_parser, include_debug=True)
     mote_run_parser.add_argument("--volume", default=DEFAULT_VOLUME, help=f"UF2 volume, default: {DEFAULT_VOLUME}")
     mote_run_parser.add_argument("--port", help="Serial port")
     mote_run_parser.set_defaults(func=mote_run)
 
-    mote_clean_parser = mote_sub.add_parser("clean", help="Pristine mote build directory")
+    mote_clean_parser = registry.add(("mote", "clean"), mote_sub.add_parser("clean", help="Pristine mote build directory"))
+    add_dry_run_option(mote_clean_parser)
     add_mote_options(mote_clean_parser)
     mote_clean_parser.set_defaults(func=mote_clean)
 
-    gateway = subparsers.add_parser("gateway", help="ESPHome gateway")
+    gateway = registry.add(
+        ("gateway",),
+        subparsers.add_parser(
+            "gateway",
+            help="ESPHome gateway",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev gateway compile
+  ./dev gateway run
+  ./dev gateway log
+""",
+        ),
+    )
+    add_dry_run_option(gateway)
     gateway_sub = gateway.add_subparsers(dest="action", required=True)
     for name, action, help_text in (
-        ("build", "compile", "Compile gateway ESPHome config (legacy alias)"),
         ("compile", "compile", "Compile gateway ESPHome config"),
-        ("run", "run", "Compile, flash, and stream gateway logs"),
-        ("log", "logs", "Stream gateway logs"),
-        ("logs", "logs", "Stream gateway logs"),
+        ("run", "run", "Compile, flash, and stream gateway log output"),
+        ("log", "logs", "Stream gateway log output"),
     ):
-        gateway_parser = gateway_sub.add_parser(name, help=help_text)
+        gateway_parser = registry.add(("gateway", name), gateway_sub.add_parser(name, help=help_text))
+        add_dry_run_option(gateway_parser)
         gateway_parser.set_defaults(func=lambda args, esphome_action=action: gateway_command(args, esphome_action))
 
-    app = subparsers.add_parser("app", help="Retail demo app")
+    app = registry.add(
+        ("app",),
+        subparsers.add_parser(
+            "app",
+            help="Retail demo app",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev app run
+  ./dev app run --mock
+""",
+        ),
+    )
+    add_dry_run_option(app)
     app_sub = app.add_subparsers(dest="action", required=True)
-    app_run_parser = app_sub.add_parser("run", help="Start backend and frontend")
+    app_run_parser = registry.add(("app", "run"), app_sub.add_parser("run", help="Start backend and frontend"))
+    add_dry_run_option(app_run_parser)
     app_run_parser.add_argument("--mock", action="store_true", help="Use scripted mock events")
     app_run_parser.set_defaults(func=lambda args: app_command(args, "dev"))
-    app_install_parser = app_sub.add_parser("install", help="Install app Python and npm dependencies")
-    app_install_parser.set_defaults(func=lambda args: app_command(args, "install"))
 
-    doctor_parser = subparsers.add_parser("doctor", help="Check local toolchain and device visibility")
+    doctor_parser = registry.add(
+        ("doctor",),
+        subparsers.add_parser(
+            "doctor",
+            help="Check local toolchain and device visibility",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev doctor
+  ./dev doctor --ncs v2.9.2
+  ./dev doctor --dry-run
+""",
+        ),
+    )
+    add_dry_run_option(doctor_parser)
     doctor_parser.add_argument("--ncs", default=DEFAULT_NCS, help=f"NCS version, default: {DEFAULT_NCS}")
     doctor_parser.set_defaults(func=doctor)
 
-    return parser
+    help_parser = registry.add(
+        ("help",),
+        subparsers.add_parser(
+            "help",
+            help="Show help for ./dev or a command topic",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev help
+  ./dev help mote
+  ./dev help mote build
+  ./dev help gateway
+""",
+        ),
+    )
+    help_parser.add_argument("topic", nargs="*", help="Optional command topic, for example: mote build")
+    help_parser.set_defaults(func=lambda args: show_help(args, registry))
+
+    return parser, registry
+
+
+def normalize_global_options(argv: list[str]) -> tuple[list[str], bool]:
+    cleaned: list[str] = []
+    dry_run = False
+    for arg in argv:
+        if arg == "--dry-run":
+            dry_run = True
+        else:
+            cleaned.append(arg)
+    return cleaned, dry_run
+
+
+def show_help(args: argparse.Namespace, registry: ParserRegistry) -> None:
+    topic = list(args.topic)
+    parser = registry.get(topic)
+    if parser is None:
+        requested = " ".join(topic)
+        valid = sorted(" ".join(key) or "root" for key in registry.parsers)
+        raise SystemExit(f"Unknown help topic: {requested}\nValid topics: {', '.join(valid)}")
+    parser.print_help()
+
+
+def print_root_command_error(parser: argparse.ArgumentParser, command: str | None) -> None:
+    if command:
+        print(f"Unknown command: {command}", file=sys.stderr)
+    else:
+        print("Missing command.", file=sys.stderr)
+    print(f"Valid commands: {', '.join(ROOT_COMMANDS)}", file=sys.stderr)
+    print("Run './dev help' for examples.", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    parser, registry = build_parser()
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    normalized_argv, dry_run = normalize_global_options(raw_argv)
+
+    if not normalized_argv:
+        parser.print_help(sys.stderr)
+        print_root_command_error(parser, None)
+        return 2
+    if normalized_argv[0] not in ROOT_COMMANDS and normalized_argv[0] not in ("-h", "--help"):
+        print_root_command_error(parser, normalized_argv[0])
+        return 2
+    if normalized_argv[0] in COMMAND_GROUPS and len(normalized_argv) == 1:
+        group_parser = registry.get([normalized_argv[0]])
+        assert group_parser is not None
+        group_parser.print_help()
+        return 2
+
+    args = parser.parse_args(normalized_argv)
+    args.dry_run = dry_run or getattr(args, "dry_run", False)
     try:
         args.func(args)
     except subprocess.CalledProcessError as exc:

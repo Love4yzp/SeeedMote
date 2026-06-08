@@ -48,6 +48,137 @@ class DevCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("doctor checks skipped in --dry-run", result.stdout)
 
+    def test_dry_run_is_accepted_after_nested_command(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "mote", "build", "--dry-run"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cwd: mote", result.stdout)
+        self.assertIn("west build --no-sysbuild -p always", result.stdout)
+
+    def test_dry_run_is_accepted_after_top_level_command(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "doctor", "--dry-run"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("doctor checks skipped in --dry-run", result.stdout)
+
+    def test_help_command_prints_root_examples(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "help"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SeeedMote v2 development CLI", result.stdout)
+        self.assertIn("./dev mote build", result.stdout)
+        self.assertIn("./dev gateway run", result.stdout)
+
+    def test_help_command_prints_nested_command_help(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "help", "mote", "build"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage: ./dev mote build", result.stdout)
+        self.assertIn("--debug", result.stdout)
+        self.assertIn("--dry-run", result.stdout)
+
+    def test_invalid_command_points_to_valid_commands(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "unknown"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unknown command: unknown", result.stderr)
+        self.assertIn("Valid commands:", result.stderr)
+        self.assertIn("mote", result.stderr)
+        self.assertIn("gateway", result.stderr)
+
+    def test_group_command_without_action_prints_group_examples(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "app"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("usage: ./dev app", result.stdout)
+        self.assertIn("{run}", result.stdout)
+        self.assertIn("./dev app run --mock", result.stdout)
+        self.assertNotIn("install", result.stdout)
+        self.assertEqual(result.stderr, "")
+
+    def test_app_install_is_not_exposed_as_public_cli_action(self):
+        result = run_dev("app", "install")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice: 'install'", result.stderr)
+
+    def test_mote_help_only_lists_canonical_actions(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "mote"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("{build,flash,log,run,clean}", result.stdout)
+        self.assertNotIn("monitor", result.stdout)
+
+    def test_gateway_help_only_lists_canonical_actions(self):
+        result = subprocess.run(
+            [sys.executable, str(DEV), "gateway"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("{compile,run,log}", result.stdout)
+        self.assertNotIn("build", result.stdout)
+        self.assertNotIn("logs", result.stdout)
+
+    def test_redundant_aliases_are_not_public_cli_actions(self):
+        cases = (
+            ("mote", "monitor"),
+            ("gateway", "build"),
+            ("gateway", "logs"),
+        )
+
+        for args in cases:
+            with self.subTest(args=args):
+                result = run_dev(*args)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"invalid choice: '{args[1]}'", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
