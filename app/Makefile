@@ -21,9 +21,18 @@ BACKEND_URL := http://localhost:$(BACKEND_PORT)
 
 dev: install
 	@echo "Starting backend (:$(BACKEND_PORT)) + frontend (:$(FRONTEND_PORT)) — Ctrl-C to stop both"
-	@trap 'kill 0' INT TERM; \
-	  MOCK=$(MOCK) SEEEDMOTE_APP_PORT=$(BACKEND_PORT) $(PYTHON) $(BACKEND_DIR)/main.py & \
-	  SEEEDMOTE_FRONTEND_PORT=$(FRONTEND_PORT) SEEEDMOTE_BACKEND_URL=$(BACKEND_URL) npm --prefix $(FRONTEND_DIR) run dev & \
+	@backend_pid=; frontend_pid=; \
+	  cleanup() { \
+	    status=$$?; \
+	    trap - INT TERM HUP EXIT; \
+	    [ -z "$$backend_pid" ] || kill "$$backend_pid" 2>/dev/null || true; \
+	    [ -z "$$frontend_pid" ] || kill "$$frontend_pid" 2>/dev/null || true; \
+	    wait 2>/dev/null || true; \
+	    exit $$status; \
+	  }; \
+	  trap cleanup INT TERM HUP EXIT; \
+	  MOCK=$(MOCK) SEEEDMOTE_APP_PORT=$(BACKEND_PORT) $(PYTHON) $(BACKEND_DIR)/main.py & backend_pid=$$!; \
+	  cd $(FRONTEND_DIR) && SEEEDMOTE_FRONTEND_PORT=$(FRONTEND_PORT) SEEEDMOTE_BACKEND_URL=$(BACKEND_URL) ./node_modules/.bin/vite & frontend_pid=$$!; \
 	  wait
 
 install:

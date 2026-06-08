@@ -42,6 +42,20 @@ class DevCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("make -C app dev MOCK=true", result.stdout)
 
+    def test_app_makefile_dev_trap_cleans_long_running_children(self):
+        makefile = (ROOT / "app" / "Makefile").read_text()
+
+        self.assertIn("trap cleanup INT TERM HUP EXIT", makefile)
+        self.assertIn("cd $(FRONTEND_DIR) &&", makefile)
+        self.assertIn("./node_modules/.bin/vite", makefile)
+        self.assertNotIn("npm --prefix $(FRONTEND_DIR) run dev &", makefile)
+
+    def test_dev_app_run_forwards_stop_signals_to_process_group(self):
+        dev = DEV.read_text()
+
+        self.assertIn("signal.SIGHUP", dev)
+        self.assertIn("run_command_for_app(command", dev)
+
     def test_doctor_is_available_in_dry_run(self):
         result = run_dev("doctor")
 
