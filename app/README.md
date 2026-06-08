@@ -34,6 +34,7 @@ FastAPI + React 消费侧参考实现。订阅 SeeedMote v2 gateway 的事件型
 ```bash
 ./dev app run          # FastAPI :3001 + Vite :5173,真 MQTT
 ./dev app run --mock   # 同上,但用脚本化 mock 数据(无需硬件/broker)
+./dev app run --mock --backend-port 3101 --frontend-port 5175
 ```
 
 Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 motion event,无
@@ -42,6 +43,7 @@ Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 
 环境变量:
 - `SEEEDMOTE_BROKER` / `SEEEDMOTE_BROKER_PORT`
 - `SEEEDMOTE_BROKER_USER` / `SEEEDMOTE_BROKER_PASS`
+- `SEEEDMOTE_APP_PORT` / `PORT` 覆盖 backend 监听端口
 - `MOCK=true` 切换 mock
 
 ## Register a new mote
@@ -49,10 +51,27 @@ Mock 模式由后端 `_run_mock` 协程驱动,**严格遵循 v2 契约**(只发 
 编辑根级 `shoes.yaml`。Key = `mote_mac`(lowercase 无冒号)。
 未注册的 mote 会以 `(xxxx)` 占位卡片出现,不需要改固件。
 
+现场登记时先运行 app,展开 `互动记录 -> 诊断 -> 查看`,复制完整
+`mote_mac`,再添加到 `app/shoes.yaml`。Backend 在 FastAPI lifespan startup
+加载 catalog,编辑后需要重启 backend。
+
 ## Register a gateway alias
 
 编辑根级 `gateways.yaml`。Key = MQTT payload 里的 `gw` 稳定 ID,`alias` 是业务/现场
-显示名,例如 `booth-01-left`。未登记的 gateway 仍按原始 `gw` ID 显示。
+显示名,例如 `booth-01-left`。Backend/Web UI 会优先展示 alias,但诊断信息仍保留
+raw `gw_id`;未登记的 gateway 仍按原始 `gw` ID 显示。
+
+## Production-style serving
+
+先构建 frontend,再启动 backend:
+
+```bash
+cd app/app && npm run build
+cd ../backend && python3 main.py
+```
+
+FastAPI 启动时如果发现 `app/app/dist`,会把构建后的静态 app 挂载到 `/`。
+如果是在 backend 已经运行后才构建 frontend,需要重启 backend。
 
 ## Files
 

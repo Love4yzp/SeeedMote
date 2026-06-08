@@ -11,13 +11,15 @@ def to_interaction_event(
     mote_mac = str(raw.get("mote_mac") or "").lower()
     item = shoes.get(mote_mac)
     gw_id = str(raw.get("gw_id") or "unknown")
+    gw_alias = (gateway_aliases or {}).get(gw_id)
 
     source = {
         "mote_mac": mote_mac,
         "packet_id": int(raw.get("packet_id", 0)),
         "rssi": int(raw.get("rssi", 0)),
         "gw_id": gw_id,
-        "gw_alias": (gateway_aliases or {}).get(gw_id),
+        "gw_alias": gw_alias,
+        "gw_label": gw_alias or gw_id,
     }
 
     if item is None:

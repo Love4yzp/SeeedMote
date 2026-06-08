@@ -34,7 +34,9 @@ nrfxlib/
 modules/
 bootloader/
 test/
-tools/
+tools/*
+!tools/web-bt/
+!tools/web-bt/**
 zephyr/
 zephyr-sources/
 

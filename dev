@@ -340,6 +340,8 @@ def app_command(args: argparse.Namespace, target: str) -> None:
     command = ["make", "-C", "app", target]
     if target == "dev":
         command.append(f"MOCK={'true' if args.mock else 'false'}")
+        command.append(f"BACKEND_PORT={args.backend_port}")
+        command.append(f"FRONTEND_PORT={args.frontend_port}")
     run_command(command, dry_run=args.dry_run)
 
 
@@ -528,6 +530,8 @@ def build_parser() -> tuple[argparse.ArgumentParser, ParserRegistry]:
     app_run_parser = registry.add(("app", "run"), app_sub.add_parser("run", help="Start backend and frontend"))
     add_dry_run_option(app_run_parser)
     app_run_parser.add_argument("--mock", action="store_true", help="Use scripted mock events")
+    app_run_parser.add_argument("--backend-port", default="3001", help="Backend port, default: 3001")
+    app_run_parser.add_argument("--frontend-port", default="5173", help="Frontend port, default: 5173")
     app_run_parser.set_defaults(func=lambda args: app_command(args, "dev"))
 
     doctor_parser = registry.add(

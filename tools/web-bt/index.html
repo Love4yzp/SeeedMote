@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SeeedMote Web BT Config</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #dbe3ef;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+
+      .status {
+        font-size: 13px;
+        color: #475569;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      fieldset {
+        border: 0;
+        margin: 0;
+        padding: 0;
+      }
+
+      legend,
+      label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+      }
+
+      input {
+        width: 100%;
+        min-height: 48px;
+        box-sizing: border-box;
+        border: 1px solid #9aa8ba;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-size: 16px;
+      }
+
+      input:focus-visible,
+      button:focus-visible {
+        outline: 3px solid #2563eb;
+        outline-offset: 2px;
+      }
+
+      button {
+        min-height: 44px;
+        border: 0;
+        border-radius: 6px;
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: #0f766e;
+        color: #fff;
+      }
+
+      button.secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      button.danger {
+        background: #dc2626;
+        color: #fff;
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      pre {
+        min-height: 120px;
+        margin: 0;
+        white-space: pre-wrap;
+        background: #111827;
+        color: #dbeafe;
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>SeeedMote Config</h1>
+          <div class="status" id="support" aria-live="polite"></div>
+        </div>
+        <button class="primary" id="connect" type="button">Connect</button>
+      </header>
+
+      <section class="panel">
+        <form id="config-form" action="#" method="post">
+          <fieldset>
+            <legend>Wake tuning</legend>
+            <div class="grid">
+              <div>
+                <label for="ths">Wake threshold THS</label>
+                <input id="ths" name="ths" type="number" min="0" max="63" step="1" inputmode="numeric" />
+              </div>
+              <div>
+                <label for="dur">Wake duration DUR</label>
+                <input id="dur" name="dur" type="number" min="0" max="255" step="1" inputmode="numeric" />
+              </div>
+            </div>
+          </fieldset>
+          <div class="actions">
+            <button class="secondary" id="read" type="button" disabled>Read</button>
+            <button class="primary" id="write" type="submit" disabled>Write</button>
+            <button class="danger" id="reboot" type="button" disabled>Reboot</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <label for="log">Log</label>
+        <pre id="log" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <script type="module">
+      const UUIDS = {
+        service: "a8b00001-3e8e-4b8f-9a1c-9b1f5e88aa00",
+        ths: "a8b00002-3e8e-4b8f-9a1c-9b1f5e88aa00",
+        dur: "a8b00003-3e8e-4b8f-9a1c-9b1f5e88aa00",
+        reboot: "a8b00004-3e8e-4b8f-9a1c-9b1f5e88aa00",
+      };
+
+      const state = {
+        device: null,
+        server: null,
+        service: null,
+        chars: {},
+      };
+
+      const els = {
+        support: document.querySelector("#support"),
+        connect: document.querySelector("#connect"),
+        form: document.querySelector("#config-form"),
+        read: document.querySelector("#read"),
+        write: document.querySelector("#write"),
+        reboot: document.querySelector("#reboot"),
+        ths: document.querySelector("#ths"),
+        dur: document.querySelector("#dur"),
+        log: document.querySelector("#log"),
+      };
+
+      function log(message) {
+        const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        els.log.textContent = `[${ts}] ${message}\n${els.log.textContent}`;
+      }
+
+      function setConnected(connected) {
+        els.read.disabled = !connected;
+        els.write.disabled = !connected;
+        els.reboot.disabled = !connected;
+        els.connect.textContent = connected ? "Reconnect" : "Connect";
+      }
+
+      async function connect() {
+        if (!navigator.bluetooth) {
+          log("Web Bluetooth is not available. Use Chrome on Android or desktop Chrome.");
+          return;
+        }
+
+        state.device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [UUIDS.service] }],
+          optionalServices: [UUIDS.service],
+        });
+        state.device.addEventListener("gattserverdisconnected", () => {
+          setConnected(false);
+          log("Disconnected");
+        });
+        state.server = await state.device.gatt.connect();
+        state.service = await state.server.getPrimaryService(UUIDS.service);
+        state.chars.ths = await state.service.getCharacteristic(UUIDS.ths);
+        state.chars.dur = await state.service.getCharacteristic(UUIDS.dur);
+        state.chars.reboot = await state.service.getCharacteristic(UUIDS.reboot);
+        setConnected(true);
+        log(`Connected to ${state.device.name || state.device.id}`);
+        await readValues();
+      }
+
+      async function readU8(characteristic) {
+        const value = await characteristic.readValue();
+        return value.getUint8(0);
+      }
+
+      async function writeU8(characteristic, value) {
+        await characteristic.writeValue(new Uint8Array([value]));
+      }
+
+      function parseU8(input, label, max) {
+        const value = Number(input.value);
+        if (!Number.isInteger(value) || value < 0 || value > max) {
+          throw new Error(`${label} must be an integer from 0 to ${max}`);
+        }
+        return value;
+      }
+
+      async function readValues() {
+        els.ths.value = String(await readU8(state.chars.ths));
+        els.dur.value = String(await readU8(state.chars.dur));
+        log(`Read THS=${els.ths.value}, DUR=${els.dur.value}`);
+      }
+
+      async function writeValues() {
+        const ths = parseU8(els.ths, "THS", 63);
+        const dur = parseU8(els.dur, "DUR", 255);
+        await writeU8(state.chars.ths, ths);
+        await writeU8(state.chars.dur, dur);
+        log(`Wrote THS=${ths}, DUR=${dur}`);
+      }
+
+      async function reboot() {
+        if (!confirm("Reboot this mote now?")) return;
+        await writeU8(state.chars.reboot, 1);
+        log("Reboot command sent");
+      }
+
+      els.support.textContent = navigator.bluetooth
+        ? "Chrome / Android, connect during the 30s config window"
+        : "Web Bluetooth unavailable in this browser";
+      els.connect.addEventListener("click", () => connect().catch((err) => log(err.message)));
+      els.read.addEventListener("click", () => readValues().catch((err) => log(err.message)));
+      els.form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        writeValues().catch((err) => log(err.message));
+      });
+      els.reboot.addEventListener("click", () => reboot().catch((err) => log(err.message)));
+    </script>
+  </body>
+</html>

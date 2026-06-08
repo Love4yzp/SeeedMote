@@ -4,7 +4,6 @@
 #
 # Unmapped mote_macs surface as a "未登记" placeholder card in the UI; add an
 # entry here to give them a SKU and image. No firmware change required.
-
 shoes:
   "f0e3912cec19":
     sku: "SH-001"
