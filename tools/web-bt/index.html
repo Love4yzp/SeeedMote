@@ -931,7 +931,8 @@
           await writeU8(state.chars.ths, ths);
           await writeU8(state.chars.dur, dur);
           applyValues(ths, dur);
-          log(`保存成功：${describeConfig(ths, dur)}。配置已写入持久存储。`);
+          log(`保存成功：${describeConfig(ths, dur)}。设备将自动重启以应用配置。`);
+          await writeU8(state.chars.reboot, 1);
         } finally {
           if (state.connected) {
             setActionButtonsDisabled(false);
