@@ -45,6 +45,7 @@ static struct bt_uuid_128 cmd_uuid = BT_UUID_INIT_128(BT_UUID_CFG_CMD_VAL);
 static void deferred_reboot(struct k_work *work)
 {
     ARG_UNUSED(work);
+    imu_save_config();
     LOG_INF("cfg cmd: rebooting now");
     sys_reboot(SYS_REBOOT_COLD);
 }

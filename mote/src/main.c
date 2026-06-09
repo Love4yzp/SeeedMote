@@ -537,13 +537,16 @@ uint8_t imu_get_wake_dur(void) { return imu_wake_dur; }
 static int persist_u8_setting(const char *key, uint8_t value)
 {
     if (!cfg_settings_ready) {
-        return 0;
+        LOG_WRN("persist %s=0x%02x skipped: settings subsys not ready", key, value);
+        return -ENODEV;
     }
 
     int rc = settings_save_one(key, &value, sizeof(value));
 
     if (rc) {
         LOG_WRN("settings_save_one(%s) failed: %d", key, rc);
+    } else {
+        LOG_INF("persisted %s=0x%02x", key, value);
     }
     return rc;
 }
@@ -604,6 +607,9 @@ static void cfg_settings_init(void)
     if (rc) {
         LOG_WRN("settings_load_subtree(%s) failed: %d", CFG_SETTINGS_TREE, rc);
     }
+    LOG_INF("cfg ready=%d THS=0x%02x DUR=0x%02x (default=0x%02x/0x%02x)",
+            cfg_settings_ready, imu_wake_ths, imu_wake_dur,
+            LSM6DSL_WAKE_UP_THS_DEFAULT, LSM6DSL_WAKE_UP_DUR_DEFAULT);
 }
 #else
 static int persist_u8_setting(const char *key, uint8_t value)
@@ -624,22 +630,28 @@ int imu_set_wake_ths(uint8_t value)
 
     int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_THS, value);
 
-    if (rc == 0) {
-        imu_wake_ths = value;
-        rc = persist_u8_setting(CFG_SETTINGS_THS, value);
+    if (rc) {
+        return rc;
     }
-    return rc;
+    imu_wake_ths = value;
+    return 0;
 }
 
 int imu_set_wake_dur(uint8_t value)
 {
     int rc = imu_write_reg(LSM6DSL_REG_WAKE_UP_DUR, value);
 
-    if (rc == 0) {
-        imu_wake_dur = value;
-        rc = persist_u8_setting(CFG_SETTINGS_DUR, value);
+    if (rc) {
+        return rc;
     }
-    return rc;
+    imu_wake_dur = value;
+    return 0;
+}
+
+void imu_save_config(void)
+{
+    persist_u8_setting(CFG_SETTINGS_THS, imu_wake_ths);
+    persist_u8_setting(CFG_SETTINGS_DUR, imu_wake_dur);
 }
 
 static int imu_read_reg(uint8_t reg, uint8_t *value)

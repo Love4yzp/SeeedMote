@@ -18,3 +18,7 @@ uint8_t imu_get_wake_ths(void);
 uint8_t imu_get_wake_dur(void);
 int imu_set_wake_ths(uint8_t value);
 int imu_set_wake_dur(uint8_t value);
+
+/* Persist current THS/DUR to NVS.  Call from a non-BT context (work queue)
+ * so flash writes don't block the radio. */
+void imu_save_config(void);
