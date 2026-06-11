@@ -1,7 +1,7 @@
 # ESPHome test defaults are tracked in gateway/secrets.yaml.
 # Do not put real production credentials there.
 
-# PlatformIO (historical, no longer used)
+# PlatformIO
 .pio/
 .pioenvs/
 .piolibdeps/
