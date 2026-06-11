@@ -17,38 +17,38 @@
 | `ZEPHYR_BASE` 路径 | 根 `dev` CLI(从 `--ncs` 派生) |
 | nRF 板名 / DTS overlay | `mote/app.overlay` + `mote/prj.conf` |
 | BTHome 对象映射 | §5 内联表 + [BTHome spec](https://bthome.io/format/) |
-| ESPHome gateway 配置 | `gateway/esphome.yaml` |
+| Gateway 固件源码 | `gateway/main/*.c` + `gateway/platformio.ini` |
 | 项目当前状态 / TODO / "做到哪" | `README.md` + `git log` |
 
 ---
 
-## §1 工具链(mote = west,gateway = ESPHome)
+## §1 工具链(mote = west + NCS,gateway = PlatformIO + ESP-IDF)
 
 **Mote** (`mote/`) = XIAO nRF52840 Sense,走 **west + NCS**。
-**Gateway** (`gateway/`) = XIAO ESP32-S3,走 **ESPHome YAML**,不写 C。
+**Gateway** (`gateway/`) = XIAO ESP32-S3,走 **PlatformIO + ESP-IDF**,C 固件。
 
 | 对象 | 工具链 | 改什么 |
 |---|---|---|
 | Mote 固件 | west + NCS | `mote/src/*.c`、`mote/prj.conf`、`mote/app.overlay` |
-| Gateway 配置 | ESPHome CLI | `gateway/esphome.yaml`、`gateway/secrets.yaml`(测试默认值) |
+| Gateway 固件 | PlatformIO + ESP-IDF | `gateway/main/*.c`、`gateway/platformio.ini`、`gateway/sdkconfig.defaults` |
 
-不再有 PIO / ESP-IDF C 固件。
+> **历史**: Gateway 曾用 ESPHome YAML(`gateway/esphome.yaml` 仍保留为历史参考),PR #21 (2026-06-08) 替换为 PlatformIO + ESP-IDF C 固件,以获得 BLE 扫描、MQTT 路由、WiFi 配网的完全控制。
 
 ---
 
 ## §2 三个永远不要做的事
 
-### 1. 不要在 gateway/ 写 C 固件
-
-Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMakeLists.txt`、`platformio.ini` 的冲动——**停下来**。修改 `gateway/esphome.yaml` 就是全部。
-
-### 2. 不要新建顶级目录 / 切换工具链
+### 1. 不要新建顶级目录 / 切换工具链
 
 架构级决策由人发起,不由 AI 自选。
 
-### 3. 不要改 BTHome 对象映射而不同步 mote 代码
+### 2. 不要改 BTHome 对象映射而不同步 mote + gateway 代码
 
-`gateway/esphome.yaml` 里的 BTHome sensor type 必须和 `mote/` 广播的对象保持一致。改一个必须同时改另一个——先写提案给用户。
+`gateway/main/ble_scanner.c` 里的 BTHome 解析和 `mote/` 广播的对象必须保持一致。改一个必须同时改另一个——先写提案给用户。
+
+### 3. 不要在 gateway 引入 ESPHome / bthome_receiver
+
+Gateway 已从 ESPHome 迁移到 PlatformIO + ESP-IDF C。不要开倒车。历史原因见 §5.4。
 
 ---
 
@@ -67,15 +67,28 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 
 构建:`./dev mote build`
 
-### 任务 B — 改 gateway 配置
+### 任务 B — 改 gateway 固件
 
-**只改** `gateway/esphome.yaml`:
+**在** `gateway/main/` 范围:
 
-- 加 BTHome sensor → `bthome:` 块里追加 sensor/binary_sensor
-- 改 WiFi/MQTT → `gateway/secrets.yaml`(当前测试阶段提交默认值;不要放真实生产凭据)
-- 加 ESPHome automation → `on_value:` / `on_state:` blocks
+| 改动 | 文件 |
+|---|---|
+| BLE 扫描 / BTHome 解析 | `ble_scanner.c/.h` |
+| MQTT topic / payload | `mqtt_mgr.c/.h` |
+| WiFi 配网 / AP 模式 | `wifi_mgr.c/.h` |
+| Web 配置界面 | `web_server.c/.h` + `web_ui.html` |
+| NVS 持久化配置 | `nvs_config.c/.h` |
+| Gateway ID 生成 | `gw_id.c/.h` |
+| LED 控制 / 闪灯模式 | `led.c/.h` |
+| 串口 CLI 调试命令 | `cli.c/.h` |
+| 新模块 | 新建 `.c/.h` + `main/CMakeLists.txt` 的 `SRCS` 追加 |
+| PlatformIO 配置 | `gateway/platformio.ini` |
+| ESP-IDF SDK 默认配置 | `gateway/sdkconfig.defaults` |
+| 分区表 | `gateway/partitions.csv` |
+| WiFi/MQTT 测试凭据 | `gateway/secrets.yaml`(当前测试阶段提交默认值;不要放真实生产凭据) |
 
-部署:`./dev gateway run`
+构建:`./dev gateway build`
+烧录:`./dev gateway flash`
 
 ---
 
@@ -84,6 +97,7 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 ```bash
 ./dev doctor                         # 检查工具链 / secrets / 串口 / UF2 卷
 
+# Mote
 ./dev mote build                     # 编译 mote
 ./dev mote build --debug             # 编译 USB CDC debug 固件
 ./dev mote flash                     # 编译 + 拷贝 UF2 到 bootloader 卷
@@ -96,9 +110,14 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 ./dev mote log --port /dev/cu.usbmodem101
 
 # Gateway
-./dev gateway compile
-./dev gateway run
-./dev gateway log
+./dev gateway build                  # pio run
+./dev gateway flash                  # pio run -t upload
+./dev gateway log                    # pio device monitor
+./dev gateway run                    # flash + log
+./dev gateway clean                  # pio run -t clean
+
+./dev gateway flash --port /dev/cu.usbserial-xxx
+./dev gateway log --port /dev/cu.usbserial-xxx
 
 # App demo
 ./dev app run
@@ -111,14 +130,14 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 
 ### 5.1 BTHome 对象表(mote 广播的字段)
 
-`mote/` 固件广播的 BTHome v2 Service Data 对象,供 `gateway/esphome.yaml` 对照。Service Data UUID: `0xFCD2`(BTHome v2,unencrypted,trigger-based)。
+`mote/` 固件广播的 BTHome v2 Service Data 对象,供 `gateway/main/ble_scanner.c` 对照。Service Data UUID: `0xFCD2`(BTHome v2,unencrypted,trigger-based)。
 
 | Object | object_id | Type | 说明 |
 |--------|-----------|------|------|
 | packet_id | 0x00 | uint8 | multi-gateway dedup key,暴露 MQTT |
 | moving | 0x22 | uint8 (bool) | `1`=motion event / `0`=boot heartbeat,**gateway 用它分流 topic** |
 
-> **历史**:`vibration` (0x2C) + `count` (0x3E) 在 v4 设计中删除(Stage 2 后 IMU 硬件已过滤 noise,PICKUP/MOVING 二分失意义;`count` 角色被 `packet_id` + consumer 端 dedup 接管)。gateway 解析器对这两个旧 object_id 保留 tolerate 路径(`gateway/esphome.yaml` lambda 走对象 id+长度循环,不依赖固定 offset),方便老固件过渡。
+> **历史**:`vibration` (0x2C) + `count` (0x3E) 在 v4 设计中删除(Stage 2 后 IMU 硬件已过滤 noise,PICKUP/MOVING 二分失意义;`count` 角色被 `packet_id` + consumer 端 dedup 接管)。gateway 解析器对这两个旧 object_id 保留 tolerate 路径(`ble_scanner.c` 走对象 id+长度循环,不依赖固定 offset),方便老固件过渡。
 
 ### 5.2 MQTT topic
 
@@ -130,7 +149,7 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 | `seeedmote/gateway/cmd` | app 发给 gateway 的运维命令 | `{"gw": "<gw_id>", "cmd": "locate"}` |
 
 - `<mac_no_colons>` = 小写无冒号 MAC,e.g. `aabbccddeeff`
-- `<gw_id>` = ESPHome `esphome.name` + 自动 MAC 后缀(例如 `seeedmote-gw-a1b2c3`),是稳定 gateway ID;用户可读位置名在消费侧 alias 映射,不靠烧录参数
+- `<gw_id>` = `seeedmote-gw-` + MAC 后 3 字节 hex(例如 `seeedmote-gw-a1b2c3`),由 `gw_id.c` 在 boot 时从 WiFi MAC 派生,是稳定 gateway ID
 - MQTT username 也在 gateway 启动早期自动设为同一个 `<gw_id>`;不要在 `gateway/secrets.yaml` 里维护每台设备的 username
 - **不暴露 `moving` 到 payload** —— gateway 已根据它分流 topic,consumer 无需再看
 - `/seen` 不是强在线语义,只表示 gateway 最近看见了 mote 的 boot heartbeat
@@ -139,20 +158,34 @@ Gateway 是 **ESPHome YAML**。看到任何想在 `gateway/` 里写 `.c`、`CMak
 ### 5.3 Gateway 过滤策略
 
 Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BLE Local Name。
-- ESPHome `esp32_ble_tracker` 用 passive scan(`active: false`),只读 ADV_IND 的 payload,不发 SCAN_REQ。若 mote 没把 Complete Local Name 塞进 ADV payload(early WIP / 老固件就是如此),`x.get_name()` 返回空,任何 name 过滤都会静默吃光所有帧
-- Lambda parser 再要求 BTHome `packet_id` (0x00) + `moving` (0x22) 都出现才发 MQTT,等价于"只接 Mote 形状的 BTHome 帧"
+- ESP-IDF BLE scan 用 passive scan,只读 ADV_IND 的 payload,不发 SCAN_REQ
+- `ble_scanner.c` 解析器要求 BTHome `packet_id` (0x00) + `moving` (0x22) 都出现才发 MQTT,等价于"只接 Mote 形状的 BTHome 帧"
 - **不依赖 MAC 地址** —— 同一 gateway 可同时听多个 mote
 
-### 5.4 Gateway 不使用 `bthome_receiver` 外部组件
+### 5.4 Gateway 不使用 ESPHome / bthome_receiver
 
-历史上 `gateway/esphome.yaml` 试过 `bthome_receiver`(社区 external component)。**v4 P0 决定回归 raw `esp32_ble_tracker.on_ble_advertise` lambda 解析**,原因:
+历史上 Gateway 用 ESPHome YAML + `bthome_receiver` 外部组件。PR #21 迁移到 PlatformIO + ESP-IDF C,原因:
 - `bthome_receiver` 按"per-device sensor mapping"(Home Assistant 模型)设计,要求每个 mote 绑定固定 MAC,跟 v2 多 mote 单 gateway 冲突
-- 不暴露 per-packet RSSI,路由表算法没数据可用
-- 不支持按 BTHome 对象值动态选 MQTT topic(`/event` vs `/seen` 分流)
+- ESPHome 不暴露 per-packet RSSI,路由表算法没数据可用
+- ESPHome 不支持按 BTHome 对象值动态选 MQTT topic(`/event` vs `/seen` 分流)
+- 需要 WiFi AP 配网 + Web 配置界面 + NVS 持久化,ESPHome 抽象层太厚
 
-整个 BTHome 解析在 `gateway/esphome.yaml` 内联 lambda,约 40 行,是 gateway 的全部 BTHome 表面。
+整个 BTHome 解析在 `gateway/main/ble_scanner.c`,是 gateway 的全部 BTHome 表面。
 
-### 5.5 事件型原则
+### 5.5 Gateway 架构概览
+
+| 模块 | 文件 | 职责 |
+|---|---|---|
+| BLE Scanner | `ble_scanner.c` | Passive BLE scan,解析 BTHome v2 Service Data,过滤 UUID 0xFCD2 |
+| MQTT Manager | `mqtt_mgr.c` | MQTT 连接管理,event/seen/status topic 发布,cmd 订阅 |
+| WiFi Manager | `wifi_mgr.c` | AP+STA 双模,AP 用于首次配网,STA 连上游 WiFi |
+| Web Server | `web_server.c` | HTTP 80 端口配置界面(WiFi SSID/密码 + MQTT broker) |
+| NVS Config | `nvs_config.c` | WiFi / MQTT 凭据持久化到 NVS Flash |
+| Gateway ID | `gw_id.c` | 从 WiFi MAC 派生稳定 gateway ID |
+| LED | `led.c` | GPIO21 LED,AP 客户端连接闪灯 / locate 命令闪灯 |
+| CLI | `cli.c` | 串口调试命令(`info`, `status`, `wifi_scan`, `nvs_show`, `locate`, `restart` 等) |
+
+### 5.6 事件型原则
 
 数据平面仍只在 IMU WAKE_UP 触发时发新 BTHome 帧。控制平面允许 mote boot 后发一帧 `moving=0` 作 heartbeat,以及 event/boot 后开 30s connectable window。
 
@@ -162,8 +195,8 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 
 1. **撞到了表里没有的坑?** → 在 §7 `实测踩坑沉淀` 追加一行
 2. **本文档某条规则被这次任务改变了?** → propose 修订
-3. **我在 `gateway/` 写了 C 代码?** → 立刻退回(违反 §2 #1)
-4. **BTHome 对象改了但 mote/gateway 没同步?** → 拆两步任务
+3. **BTHome 对象改了但 mote/gateway 没同步?** → 拆两步任务
+4. **Gateway 新模块加了但 `main/CMakeLists.txt` 没追加?** → 补上
 
 ---
 
@@ -189,13 +222,12 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 
 | 你可能想问的 | 写死的答案 |
 |---|---|
-| Gateway 应该用 PIO + ESP-IDF 还是 ESPHome? | **ESPHome**。C 固件已删除 |
-| PIO + ESP-IDF C gateway 还在吗? | **不在**。已 git rm,历史在 git log |
-| 我能不能在 `gateway/` 里写 C? | **不能**。Gateway = ESPHome YAML |
+| Gateway 应该用 ESPHome 还是 PIO + ESP-IDF? | **PIO + ESP-IDF C**。ESPHome 已弃用(PR #21) |
+| 我能不能在 gateway 用 ESPHome YAML? | **不能**。`gateway/esphome.yaml` 是历史残留,不再编译 |
+| Gateway 用 `bthome_receiver` 外部组件? | **不用**。原因见 §5.4 |
 | 我能不能加 OTA / MCUBoot? | v2.0 显式放弃,后续由人决策 |
 | 我能不能在 src/ 里直接 `#include <zephyr.h>`? | **不能**,Zephyr 3.7 用带前缀的头(`<zephyr/kernel.h>`) |
 | NCS 需要在 project 目录里 bootstrap? | NCS 工作区在 `~/ncs/<version>/` 共享;`ZEPHYR_BASE` 在 `./dev` 里从 `--ncs` 派生 |
-| Gateway 用 `bthome_receiver` 外部组件? | **不用**。v4 P0 决定回归 raw `on_ble_advertise`(理由见 §5.4) |
 | Downlink 走 MQTT broker? | **Mote 配置不走 MQTT**。配置走 Web BT 直连;Gateway 只订阅 `seeedmote/gateway/cmd` 做自身运维命令,当前仅 `locate` 闪灯 |
-| Gateway 加 BLE Client 做下行? | **不**。Gateway 哑管道,纯 YAML |
+| Gateway 加 BLE Client 做下行? | **不**。Gateway 是上行哑管道 |
 | iOS Safari 上 Web BT 配置? | **不支持**。v2.0 demo + 技术员限定 Chrome / Android |
