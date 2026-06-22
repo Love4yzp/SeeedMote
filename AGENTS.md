@@ -32,7 +32,7 @@
 | Mote 固件 | west + NCS | `mote/src/*.c`、`mote/prj.conf`、`mote/app.overlay` |
 | Gateway 固件 | PlatformIO + ESP-IDF | `gateway/main/*.c`、`gateway/platformio.ini`、`gateway/sdkconfig.defaults` |
 
-> **历史**: Gateway 曾用 ESPHome YAML(`gateway/esphome.yaml` 仍保留为历史参考),PR #21 (2026-06-08) 替换为 PlatformIO + ESP-IDF C 固件,以获得 BLE 扫描、MQTT 路由、WiFi 配网的完全控制。
+> **历史**: Gateway 曾用 ESPHome YAML,PR #21 (2026-06-08) 替换为 PlatformIO + ESP-IDF C 固件,以获得 BLE 扫描、MQTT 路由、WiFi 配网的完全控制。ESPHome 残留文件已在后续清理中删除。
 
 ---
 
@@ -223,7 +223,7 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 | 你可能想问的 | 写死的答案 |
 |---|---|
 | Gateway 应该用 ESPHome 还是 PIO + ESP-IDF? | **PIO + ESP-IDF C**。ESPHome 已弃用(PR #21) |
-| 我能不能在 gateway 用 ESPHome YAML? | **不能**。`gateway/esphome.yaml` 是历史残留,不再编译 |
+| 我能不能在 gateway 用 ESPHome YAML? | **不能**。ESPHome 已弃用并删除(PR #21) |
 | Gateway 用 `bthome_receiver` 外部组件? | **不用**。原因见 §5.4 |
 | 我能不能加 OTA / MCUBoot? | v2.0 显式放弃,后续由人决策 |
 | 我能不能在 src/ 里直接 `#include <zephyr.h>`? | **不能**,Zephyr 3.7 用带前缀的头(`<zephyr/kernel.h>`) |

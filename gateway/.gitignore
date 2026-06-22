@@ -1,4 +1,7 @@
-# Gitignore settings for ESPHome
-# This is an example and may include too much for your use-case.
-# You can modify this file to suit your needs.
-/.esphome/
+# PlatformIO / ESP-IDF build artifacts (also covered by root .gitignore,
+# but kept here for standalone clone/submodule use)
+.pio/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
