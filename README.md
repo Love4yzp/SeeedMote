@@ -11,7 +11,7 @@ SeeedMote 是一套超低功耗 BLE 传感器 + 多网关系统。当顾客在�
   ┌────────────────────┐  BLE adv   ┌────────────────────┐  MQTT   ┌──────────────┐
   │  Mote              │ ─────────▶ │  Gateway           │ ──────▶ │  Your Stack  │
   │  XIAO nRF52840     │  BTHome v2 │  XIAO ESP32-S3     │         │  HA / MQTT / │
-  │  coin-size sensor  │            │  ESPHome, no code  │         │  custom app  │
+  │  coin-size sensor  │            │  ESP-IDF C firmware │         │  custom app  │
   └────────────────────┘            └────────────────────┘         └──────────────┘
          ~$5 BOM                        ~$8 BOM                      bring your own
 ```
@@ -72,7 +72,7 @@ The same event-driven BLE architecture adapts to: / 同一套事件驱动 BLE �
 ```
 
 - **Mote sleeps until motion** — IMU hardware interrupt, zero power when idle / Mote 静默至有动作——IMU 硬件中断，空闲零功耗
-- **Gateway is config-only** — ESPHome YAML, no C firmware to maintain / 网关纯配置——ESPHome YAML，无需维护 C 固件
+- **Gateway with built-in Web UI** — ESP-IDF C firmware with AP provisioning, HTTP config page, and CLI diagnostics; switch MQTT brokers on the fly without reflashing / 网关内置 Web 配置——ESP-IDF C 固件，AP 配网 + HTTP 配置页 + CLI 诊断，现场切换 MQTT broker 无需重刷
 - **Multi-gateway dedup** — multiple gateways can hear the same mote; consumer deduplicates by `(mac, packet_id)` / 多网关去重——多个网关可同时收到同一 mote，消费侧按 `(mac, packet_id)` 去重
 - **Open protocol** — BTHome v2 + standard MQTT; works with Home Assistant, custom backends, or any MQTT client / 开放协议——BTHome v2 + 标准 MQTT，兼容 Home Assistant、自有后端或任意 MQTT 客户端
 
@@ -117,13 +117,13 @@ Requires nRF Connect SDK (NCS). See [docs/build.md](docs/build.md) for one-time 
 ### 3. Flash gateway / 烧录网关
 
 ```bash
-${EDITOR:-vi} gateway/secrets.yaml    # set WiFi & MQTT broker / 设置 WiFi 和 MQTT broker
-./dev gateway run                     # compile + flash + monitor / 编译 + 烧录 + 监视
+./dev gateway flash       # PlatformIO build + upload / 编译 + 烧录
+./dev gateway log         # serial monitor / 串口日志
 ```
 
-Requires ESPHome CLI (`pip install esphome`). One firmware image works for all gateways — ESPHome auto-appends MAC suffix for unique identity.
+Requires PlatformIO CLI (`pip install platformio`). On first boot the gateway starts in AP mode — connect to its hotspot, open the Web UI at `192.168.4.1`, and configure WiFi + MQTT broker. Settings persist in NVS across reboots.
 
-需要 ESPHome CLI（`pip install esphome`）。统一固件适用于所有网关——ESPHome 自动追加 MAC 后缀区分身份。
+需要 PlatformIO CLI（`pip install platformio`）。首次启动网关进入 AP 模式——连接其热点，在 `192.168.4.1` 打开 Web 配置页，设置 WiFi 和 MQTT broker。配置持久化到 NVS，重启不丢。
 
 ### 4. Verify end-to-end / 端到端验证
 
@@ -145,22 +145,24 @@ seeedmote/mote/<mac>/seen   {"rssi":-74,"gw":"seeedmote-gw-a1b2c3","reason":"boo
 | `seeedmote/gateway/<gw_id>/status` | Gateway online / 网关上线 | `{"gw", "version"}` |
 | `seeedmote/gateway/cmd` | Locate gateway (LED flash) / 定位网关（闪灯） | `{"gw", "cmd": "locate"}` |
 
-`<mac>` = lowercase MAC without colons. `<gw_id>` = ESPHome node name + MAC suffix.
+`<mac>` = lowercase MAC without colons. `<gw_id>` = `seeedmote-gw-` + last 3 bytes of WiFi MAC (e.g. `seeedmote-gw-a1b2c3`).
 
 ---
 
 ## Repo Layout / 仓库结构
 
 ```
-seeedmote-v2/
+SeeedMote/
 ├── mote/              Sensor firmware (XIAO nRF52840, west + NCS)
 │                      传感器固件
-├── gateway/           Gateway config (XIAO ESP32-S3, ESPHome YAML)
-│                      网关配置
+├── gateway/           Gateway firmware (XIAO ESP32-S3, PlatformIO + ESP-IDF)
+│                      网关固件
 ├── app/               Retail demo dashboard (FastAPI + React)
 │                      零售演示仪表盘
 ├── tools/web-bt/      Chrome Web Bluetooth field config tool
 │                      Chrome Web BT 现场配置工具
+├── firmware-release/  Release build scripts
+│                      发布构建脚本
 ├── docs/              Build guide & architecture notes
 │                      构建指南与架构文档
 ├── dev                Unified CLI entry point
@@ -190,7 +192,7 @@ For volume production, the XIAO module BOM drops to ~$5 (mote) and ~$8 (gateway)
 
 SeeedMote speaks standard MQTT. Integrate with: / SeeedMote 使用标准 MQTT，可集成：
 
-- **Home Assistant** — ESPHome native integration, BTHome auto-discovery / ESPHome 原生集成，BTHome 自动发现
+- **Home Assistant** — subscribe to MQTT topics, use HA automations / 订阅 MQTT topic，使用 HA 自动化
 - **Node-RED / n8n** — subscribe to MQTT topics, build automation flows / 订阅 MQTT topic，构建自动化流程
 - **Custom backend** — subscribe, dedup by `(mac, packet_id)`, build your business logic / 订阅、去重、构建你的业务逻辑
 - **Cloud platforms** — bridge MQTT to AWS IoT Core, Azure IoT Hub, GCP IoT, or any cloud / 桥接 MQTT 到 AWS、Azure、GCP 或任意云平台
@@ -208,12 +210,24 @@ SeeedMote speaks standard MQTT. Integrate with: / SeeedMote 使用标准 MQTT，
 
 ---
 
+## Gateway Features / 网关功能
+
+The gateway runs a custom ESP-IDF C firmware with: / 网关运行自研 ESP-IDF C 固件，具备：
+
+- **AP provisioning** — starts as WiFi hotspot on first boot for zero-touch setup / AP 配网——首次启动自动开热点，零接触配置
+- **Web config UI** — browser-based WiFi and MQTT broker configuration at `http://<gateway-ip>` / Web 配置界面——浏览器访问即可配置 WiFi 和 MQTT broker
+- **CLI diagnostics** — serial commands (`info`, `status`, `wifi_scan`, `nvs_show`, `locate`, `restart`) / CLI 诊断——串口命令支持状态查询、WiFi 扫描、NVS 查看等
+- **NVS persistence** — WiFi and MQTT settings survive power cycles / NVS 持久化——WiFi 和 MQTT 配置断电不丢
+- **Locate command** — flash LED via MQTT to find a gateway in the field / 定位命令——通过 MQTT 远程闪灯定位网关
+
+---
+
 ## Status / 项目状态
 
-End-to-end skeleton validated (2026-05): / 端到端骨架已验证（2026-05）：
+End-to-end skeleton validated (2026-06): / 端到端骨架已验证（2026-06）：
 
 - Mote: LSM6DS3TR-C hardware interrupt (WAKE_UP / INACTIVITY), BTHome v2 advertising, 30s Web BT config window after event
-- Gateway: ESPHome passive BLE scan → MQTT, unified firmware with auto MAC suffix
+- Gateway: ESP-IDF passive BLE scan → MQTT, AP provisioning + Web config UI + CLI, unified firmware with auto MAC-derived ID
 - App: FastAPI + React real-time dashboard with mock mode
 - Field config: Chrome Web Bluetooth tool for on-site mote provisioning
 
