@@ -27,6 +27,10 @@ CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+# No connect roles => no connection reattempts. Also avoids an ESP-IDF 5.3.1
+# NimBLE build break: ble_gap.c uses ble_adv_reattempt under
+# BLE_ENABLE_CONN_REATTEMPT without the NIMBLE_BLE_CONNECT guard.
+CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
 
 # BLE + WiFi coexistence on single antenna
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y

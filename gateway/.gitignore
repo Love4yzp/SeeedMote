@@ -3,5 +3,8 @@
 .pio/
 sdkconfig
 sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults
 managed_components/
 dependencies.lock
+main/web_ui_html.c

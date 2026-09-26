@@ -8,8 +8,8 @@ idf_component_register(
          "ble_scanner.c"
          "led.c"
          "cli.c"
+         "web_ui_html.c"
     INCLUDE_DIRS "."
-    EMBED_TXTFILES "web_ui.html"
     REQUIRES driver esp_common esp_system freertos log
              bt nvs_flash esp_wifi esp_event esp_netif
              esp_http_server mqtt json lwip esp_timer

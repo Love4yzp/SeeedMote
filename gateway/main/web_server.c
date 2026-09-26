@@ -15,14 +15,13 @@
 
 #define TAG "web_srv"
 
-extern const char web_ui_html_start[] asm("_binary_web_ui_html_start");
-extern const char web_ui_html_end[] asm("_binary_web_ui_html_end");
+extern const char web_ui_html_start[];
+extern const unsigned int web_ui_html_size;
 
 static esp_err_t handle_root(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, web_ui_html_start,
-                    web_ui_html_end - web_ui_html_start);
+    httpd_resp_send(req, web_ui_html_start, web_ui_html_size);
     return ESP_OK;
 }
 
