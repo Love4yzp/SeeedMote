@@ -30,11 +30,11 @@ class DevCliTest(unittest.TestCase):
         self.assertIn("-d build_uf2", result.stdout)
         self.assertIn("-DEXTRA_CONF_FILE=debug.conf", result.stdout)
 
-    def test_gateway_log_delegates_to_esphome_logs(self):
+    def test_gateway_log_delegates_to_pio_device_monitor(self):
         result = run_dev("gateway", "log")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("esphome logs gateway/esphome.yaml", result.stdout)
+        self.assertIn("pio device monitor", result.stdout)
 
     def test_app_mock_run_delegates_to_app_entrypoint(self):
         result = run_dev("app", "run", "--mock")
@@ -175,14 +175,14 @@ class DevCliTest(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("{compile,run,log}", result.stdout)
-        self.assertNotIn("build", result.stdout)
+        self.assertIn("{build,flash,log,run,clean}", result.stdout)
+        self.assertNotIn("compile", result.stdout)
         self.assertNotIn("logs", result.stdout)
 
     def test_redundant_aliases_are_not_public_cli_actions(self):
         cases = (
             ("mote", "monitor"),
-            ("gateway", "build"),
+            ("gateway", "compile"),
             ("gateway", "logs"),
         )
 
@@ -192,6 +192,14 @@ class DevCliTest(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"invalid choice: '{args[1]}'", result.stderr)
+
+    def test_mirror_on_writes_git_url_rewrite(self):
+        result = run_dev("mirror", "on")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("git config --global", result.stdout)
+        self.assertIn("url.https://gh-proxy.com/https://github.com/.insteadof", result.stdout.lower())
+        self.assertIn("https://github.com/", result.stdout)
 
 
 if __name__ == "__main__":
