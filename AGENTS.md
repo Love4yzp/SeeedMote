@@ -218,13 +218,10 @@ Gateway 只用 **Service Data UUID `0xFCD2`** 过滤识别 Mote;**不**检查 BL
 | LSM6DSL Stage 2 自管 INT1 时没有事件 | `CONFIG_LSM6DSL_TRIGGER_GLOBAL_THREAD=y` 会让 Zephyr 驱动把 INT1 配成 data-ready 路由,和 WAKE_UP/INACTIVITY 抢同一根 `irq-gpios` | 删掉 trigger Kconfig,应用层用 `I2C_DT_SPEC_GET(IMU_NODE)` 直接写 WAKE_UP 寄存器,自己挂 `GPIO_DT_SPEC_GET(IMU_NODE, irq_gpios)` 回调 |
 | `bt_set_name("SEEED-xxxxxx")` 编译/运行不生效 | Zephyr 默认设备名是静态 Kconfig 字符串 | `prj.conf` 加 `CONFIG_BT_DEVICE_NAME_DYNAMIC=y`;adv data 的 Complete Local Name 仍要用运行时 `bt_name` 更新 `data_len` |
 | ESPHome 2026.5.1 / pioarduino 55.03.38-1 编译 gateway 时反复报 `tool-esptoolpy` 不是 Python project | pioarduino 的 `tool-esptoolpy` 包是 PlatformIO metadata 包,但 `penv_setup.py` 仍尝试 `uv pip install -e` 该目录 | 这是非致命 warning,build 仍可成功;删 `~/.platformio/packages/tool-esptoolpy` 会重下同样内容,不能修 |
-| PlatformIO + ESP-IDF `EMBED_TXTFILES` 编译报 `.pio/build/<env>/.pio/build/<env>/xxx.html.S not found`(路径翻倍) | `platformio.ini` 设 `src_dir = main` 时,CMake codemodel 把 build 目录里生成的 `.S` 报成项目相对路径,PlatformIO 再拼一次 `$BUILD_DIR`;develop 分支至今未修 | 不用 EMBED_TXTFILES;`pre:embed_web_ui.py` 在源码目录生成 `web_ui_html.c`(git-ignored),`SRCS` 直接编译 |
-| NimBLE 报 `ble_adv_reattempt undeclared`(ESP-IDF 5.3.1 自身 bug) | `BT_NIMBLE_ROLE_CENTRAL=n` + `PERIPHERAL=n` 时 `NIMBLE_BLE_CONNECT=0`,但 `BLE_ENABLE_CONN_REATTEMPT` 在 S3 默认 y,`ble_gap.c` 使用处没套 connect 条件 | `sdkconfig.defaults` 加 `CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n`(无 connect 角色本就用不到) |
-| 改了 `sdkconfig.defaults` 编译却用旧配置 | PlatformIO 每个 env 用 `sdkconfig.<env>`(如 `sdkconfig.seeedmote_gateway`),存在时不会从 defaults 重新生成 | 删 `gateway/sdkconfig.<env>` + `.pio/build/<env>/CMakeCache.txt` 再编译 |
-| Nordic CDN 国内直连 ~35KB/s,nrfutil/NCS toolchain 无官方中国镜像 | 在 gpd(Arch)手动装 NCS v2.9.2 | 走 GitHub 代理:`git config --global url."https://gh-proxy.com/https://github.com/".insteadOf "https://github.com/"`(现封装为 `./dev mirror on`);Zephyr SDK tarball 也从 sdk-ng releases 经代理下;pip 走 tuna |
-| Zephyr SDK `setup.sh` 无参数运行时无限刷 `Invalid choice ''`(日志可撑到几十 GB) | 无 tty 时 `read` 拿到 EOF 空串死循环 | 必须显式非交互:`./setup.sh -t arm-zephyr-eabi -h -c` |
-| gpd 上没有真 nrfutil,`./dev mote build` 依赖它 wrap west | gpd 的 NCS 是手动装的,不走 toolchain-manager | `~/.local/bin/nrfutil` 是 shim,只实现 `toolchain-manager launch --ncs-version X -- <cmd>`(注入 `ZEPHYR_SDK_INSTALL_DIR=~/ncs/toolchains/zephyr-sdk-0.17.0` + venv PATH);别在 gpd 上"升级"nrfutil |
-| gpd 装 NCS 时 Arch 系统 python 3.14 / cmake 4.4 太新 | NCS v2.9.2 支持 Python 3.9–3.12,Zephyr 3.7 的 CMake 最低版本策略和 cmake 4.x 不兼容 | `uv python install 3.12` + `uv venv --seed`(注意 uv venv 默认**不带 pip**);cmake 用 pip 装 `cmake<4` |
+| PlatformIO + `EMBED_TXTFILES` 报 `.S not found`(`.pio/build` 路径翻倍) | `src_dir = main` 时 PlatformIO 处理不了 build 目录里的生成文件 | 不用 EMBED_TXTFILES;`embed_web_ui.py` 预生成 `web_ui_html.c` |
+| NimBLE 编译报 `ble_adv_reattempt undeclared`(ESP-IDF 5.3.1 bug) | 关了 central/peripheral 角色但 `BLE_ENABLE_CONN_REATTEMPT` 默认 y | `sdkconfig.defaults` 设 `CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n` |
+| 改了 `sdkconfig.defaults` 不生效 | PlatformIO 缓存 `sdkconfig.<env>`,不从 defaults 重生成 | 删 `sdkconfig.<env>` 再编译 |
+| 国内拉 NCS / Zephyr SDK 慢 | Nordic CDN 无中国镜像(直连 ~35KB/s) | `./dev mirror on` 走 gh-proxy;pip 用 tuna |
 
 新行格式:`坑 | 触发条件 | 修复`。**追加到表尾,不要重排或删行**。
 
