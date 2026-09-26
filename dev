@@ -24,7 +24,9 @@ DEFAULT_BOARD = "xiao_ble/nrf52840/sense"
 DEFAULT_BUILD_DIR = "build_uf2"
 DEFAULT_VOLUME = "/Volumes/XIAO-SENSE"
 DEFAULT_PORT_GLOB = "/dev/cu.usbmodem*"
-ROOT_COMMANDS = ("mote", "gateway", "app", "doctor", "help")
+ROOT_COMMANDS = ("mote", "gateway", "app", "doctor", "mirror", "help")
+GH_MIRROR = "https://gh-proxy.com/https://github.com/"
+GITHUB = "https://github.com/"
 COMMAND_GROUPS = ("mote", "gateway", "app")
 
 
@@ -441,6 +443,30 @@ def doctor(args: argparse.Namespace) -> None:
         print("serial ports: none")
 
 
+def mirror(args: argparse.Namespace) -> None:
+    key = f"url.{GH_MIRROR}.insteadOf"
+    if args.action == "status":
+        result = subprocess.run(
+            ["git", "config", "--global", "--get", key],
+            text=True,
+            stdout=subprocess.PIPE,
+        )
+        if result.returncode == 0 and result.stdout.strip() == GITHUB:
+            print(f"mirror ON:  github.com -> {GH_MIRROR}")
+        else:
+            print("mirror OFF: github.com direct")
+        return
+
+    if args.action == "on":
+        command = ["git", "config", "--global", key, GITHUB]
+    else:
+        command = ["git", "config", "--global", "--unset", key]
+    run_command(command, dry_run=args.dry_run)
+    if not args.dry_run:
+        state = "ON (github.com via gh-proxy.com)" if args.action == "on" else "OFF (direct)"
+        print(f"mirror {state}")
+
+
 def add_mote_options(parser: argparse.ArgumentParser, *, include_debug: bool = False) -> None:
     parser.add_argument("--ncs", default=DEFAULT_NCS, help=f"NCS version, default: {DEFAULT_NCS}")
     parser.add_argument("--board", default=DEFAULT_BOARD, help=f"Zephyr board, default: {DEFAULT_BOARD}")
@@ -466,6 +492,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, ParserRegistry]:
   ./dev mote flash --debug
   ./dev gateway run
   ./dev app run --mock
+  ./dev mirror on
   ./dev help mote build
 """,
         ),
@@ -654,6 +681,23 @@ def build_parser() -> tuple[argparse.ArgumentParser, ParserRegistry]:
     )
     help_parser.add_argument("topic", nargs="*", help="Optional command topic, for example: mote build")
     help_parser.set_defaults(func=lambda args: show_help(args, registry))
+
+    mirror_parser = registry.add(
+        ("mirror",),
+        subparsers.add_parser(
+            "mirror",
+            help="Toggle GitHub mirror (gh-proxy.com) for git/west/pip downloads",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""examples:
+  ./dev mirror on       # route https://github.com/ through gh-proxy.com (global git config)
+  ./dev mirror off      # back to direct github.com
+  ./dev mirror status
+""",
+        ),
+    )
+    add_dry_run_option(mirror_parser)
+    mirror_parser.add_argument("action", choices=("on", "off", "status"))
+    mirror_parser.set_defaults(func=mirror)
 
     return parser, registry
 
